@@ -1,6 +1,6 @@
 {
   "name": "yungle-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Model Context Protocol server for Yungle.",
   "bin": {
@@ -30,20 +30,23 @@
     "yungle-client": "workspace:*"
   },
   "keywords": [
-    "yungle",
+    "eu",
+    "file-transfer",
+    "gdpr",
     "mcp",
     "model-context-protocol",
-    "file-transfer"
+    "wetransfer-alternative",
+    "yungle"
   ],
   "license": "MIT",
   "author": "Hein de Wilde",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/heindewilde/yungle.git"
+    "url": "git+https://github.com/heindewilde/yungle-clients.git"
   },
   "homepage": "https://yungle.co/developers",
   "bugs": {
-    "url": "https://github.com/heindewilde/yungle/issues"
+    "url": "https://github.com/heindewilde/yungle-clients/issues"
   },
   "engines": {
     "node": ">=22"

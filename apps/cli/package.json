@@ -1,6 +1,6 @@
 {
   "name": "yungle-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Send and sync files with Yungle from the command line.",
   "bin": {
@@ -33,22 +33,25 @@
     "LICENSE"
   ],
   "keywords": [
-    "yungle",
-    "file-transfer",
     "cli",
-    "upload",
+    "eu",
+    "file-transfer",
+    "gdpr",
+    "resumable",
     "tus",
-    "resumable"
+    "upload",
+    "wetransfer-alternative",
+    "yungle"
   ],
   "license": "MIT",
   "author": "Hein de Wilde",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/heindewilde/yungle.git"
+    "url": "git+https://github.com/heindewilde/yungle-clients.git"
   },
   "homepage": "https://yungle.co/developers",
   "bugs": {
-    "url": "https://github.com/heindewilde/yungle/issues"
+    "url": "https://github.com/heindewilde/yungle-clients/issues"
   },
   "engines": {
     "node": ">=22"
