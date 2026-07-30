@@ -1,0 +1,56 @@
+{
+  "name": "yungle-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Send and sync files with Yungle from the command line.",
+  "bin": {
+    "yungle": "./dist/yungle.mjs"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/*.test.ts",
+    "lint": "eslint .",
+    "dev": "node --import tsx bin/yungle.mjs",
+    "prepublishOnly": "node build.mjs"
+  },
+  "dependencies": {
+    "tus-js-client": "^4.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "yungle-client": "workspace:*"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "yungle",
+    "file-transfer",
+    "cli",
+    "upload",
+    "tus",
+    "resumable"
+  ],
+  "license": "MIT",
+  "author": "Hein de Wilde",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/heindewilde/yungle.git"
+  },
+  "homepage": "https://yungle.co/developers",
+  "bugs": {
+    "url": "https://github.com/heindewilde/yungle/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

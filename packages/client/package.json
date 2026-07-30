@@ -1,0 +1,55 @@
+{
+  "name": "yungle-client",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/*.test.ts",
+    "lint": "eslint .",
+    "prepublishOnly": "node build.mjs && tsc -p tsconfig.build.json",
+    "prepare": "node build.mjs && tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "esbuild": "^0.25.0"
+  },
+  "description": "Typed client for the Yungle API \u2014 send file transfers, build collections and sync contacts from Node.",
+  "license": "MIT",
+  "author": "Hein de Wilde",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/heindewilde/yungle-clients.git"
+  },
+  "homepage": "https://yungle.co/developers",
+  "bugs": {
+    "url": "https://github.com/heindewilde/yungle-clients/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "yungle",
+    "file-transfer",
+    "api-client",
+    "sdk",
+    "wetransfer-alternative",
+    "eu",
+    "gdpr"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "types": "./dist/index.d.ts"
+}
