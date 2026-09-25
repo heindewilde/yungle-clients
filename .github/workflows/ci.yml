@@ -26,7 +26,8 @@ jobs:
         run: |
           set -e
           for p in apps/cli packages/mcp-server packages/api-client; do
-            (cd $p && npm pack --dry-run --json > /tmp/pack.json)
+            # npm runs `prepare` even here, and its log lands on stdout ahead of the JSON
+            (cd $p && npm pack --dry-run --json | sed -n '/^\[/,$p' > /tmp/pack.json)
             node -e "const [{files}]=require('/tmp/pack.json');const d=files.filter(f=>f.path.startsWith('dist/'));if(!d.length){console.error('$p: no dist/ in tarball');process.exit(1)}console.log('$p:',d.map(f=>f.path).join(' '))"
           done
       - name: Built CLI runs
