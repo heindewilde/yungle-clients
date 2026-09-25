@@ -86,6 +86,21 @@ export interface ClientOptions {
 
 const DEFAULT_BASE = 'https://yungle.co/api/v1';
 
+export interface PageOptions {
+  /** Page size. The server's default applies when omitted. */
+  limit?: number;
+  /** The `nextCursor` from the previous page, unchanged. */
+  cursor?: string;
+}
+
+function pageQuery(page: PageOptions, extra: Record<string, string> = {}): string {
+  const params = new URLSearchParams(extra);
+  if (page.limit !== undefined) params.set('limit', String(page.limit));
+  if (page.cursor) params.set('cursor', page.cursor);
+  const q = params.toString();
+  return q ? `?${q}` : '';
+}
+
 // Replaced with the package version by the build; `dev` under tsx and in tests.
 declare const __YUNGLE_CLIENT_VERSION__: string | undefined;
 export const CLIENT_VERSION =
@@ -115,8 +130,23 @@ export class YungleClient {
 
   // ── Transfers ─────────────────────────────────────────────────────────────
 
-  listTransfers(): Promise<{ transfers: TransferSummary[] }> {
-    return this.request('GET', '/transfers');
+  /**
+   * One page of transfers, newest first — 100 by default, up to 500. Pass the
+   * returned `nextCursor` back as `cursor` for the next page; it is null on the
+   * last one. `allTransfers()` does the walking for you.
+   */
+  listTransfers(page: PageOptions = {}): Promise<{ transfers: TransferSummary[]; nextCursor: string | null }> {
+    return this.request('GET', `/transfers${pageQuery(page)}`);
+  }
+
+  /** Every transfer, newest first, fetched a page at a time as you iterate. */
+  async *allTransfers(pageSize = 500): AsyncGenerator<TransferSummary> {
+    let cursor: string | undefined;
+    do {
+      const page = await this.listTransfers({ limit: pageSize, cursor });
+      yield* page.transfers;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
   }
 
   /**
@@ -204,10 +234,28 @@ export class YungleClient {
     return this.request('DELETE', `/collections/${enc(id)}`);
   }
 
-  /** `folderId` omitted lists everything; `'root'` lists the top level only. */
-  listCollectionFiles(id: string, folderId?: string): Promise<{ files: CollectionFile[] }> {
-    const query = folderId ? `?folderId=${encodeURIComponent(folderId)}` : '';
+  /**
+   * `folderId` omitted lists everything; `'root'` lists the top level only.
+   * Without `page.limit` the whole collection comes back in one response; with
+   * it, follow `nextCursor` (or use `allCollectionFiles`).
+   */
+  listCollectionFiles(
+    id: string,
+    folderId?: string,
+    page: PageOptions = {},
+  ): Promise<{ files: CollectionFile[]; nextCursor: string | null }> {
+    const query = pageQuery(page, folderId ? { folderId } : {});
     return this.request('GET', `/collections/${enc(id)}/files${query}`);
+  }
+
+  /** Every file in a collection, oldest first, a page at a time. */
+  async *allCollectionFiles(id: string, folderId?: string, pageSize = 1000): AsyncGenerator<CollectionFile> {
+    let cursor: string | undefined;
+    do {
+      const page = await this.listCollectionFiles(id, folderId, { limit: pageSize, cursor });
+      yield* page.files;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
   }
 
   addCollectionFiles(
@@ -271,12 +319,11 @@ export class YungleClient {
   // ── Transport ─────────────────────────────────────────────────────────────
 
   /**
-   * `idempotent` widens what may be retried.
+   * What may be retried after a 5xx or a lost connection.
    *
-   * GET and DELETE are safe by nature. POST is not — retrying `createTransfer`
-   * after a 500 would make a second draft — so it is opt-in per method, and set
-   * only where the server documents the operation as repeatable. Retrying a
-   * *throttle* is always fine regardless: a 429 means nothing happened.
+   * GET and DELETE are safe by nature. A POST is safe because it carries an
+   * `Idempotency-Key` (see below). PATCH is not retried. Retrying a *throttle*
+   * is always fine regardless: a 429 means nothing happened.
    */
   private async request<T>(
     method: string,
@@ -284,7 +331,14 @@ export class YungleClient {
     body?: unknown,
     opts?: { idempotent?: boolean },
   ): Promise<T> {
-    const safe = method === 'GET' || method === 'DELETE' || opts?.idempotent === true;
+    /**
+     * Every POST carries an Idempotency-Key, minted once and reused on every
+     * retry of this call — which is what makes a POST safe to retry at all. A
+     * lost response to "create transfer" used to mean a second draft; now the
+     * retry gets the first one back.
+     */
+    const idempotencyKey = method === 'POST' ? globalThis.crypto.randomUUID() : undefined;
+    const safe = method === 'GET' || method === 'DELETE' || idempotencyKey !== undefined || opts?.idempotent === true;
     let attempt = 0;
 
     for (;;) {
@@ -294,6 +348,7 @@ export class YungleClient {
           Authorization: `Bearer ${this.apiKey}`,
           Accept: 'application/json',
           'User-Agent': this.userAgent,
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
