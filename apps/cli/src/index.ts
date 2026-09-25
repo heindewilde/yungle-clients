@@ -1,4 +1,5 @@
 import { YungleApiError, YungleClient } from 'yungle-client';
+import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { listFlag, numberFlag, parseArgs, stringFlag } from './args';
 import {
@@ -13,6 +14,15 @@ import {
   type UploadSession,
 } from './config';
 import { collectFiles, formatBytes, pairWithTargets, toFileInputs } from './files';
+import {
+  dedupeNames,
+  downloadTo,
+  fetchManifest,
+  ManifestError,
+  parseTransferLink,
+  safeFileName,
+  type Manifest,
+} from './get';
 import {
   mcpClients,
   mergeServerEntry,
@@ -51,6 +61,9 @@ export const HELP = `yungle — send and sync files with Yungle
     --title <text>        label for your dashboard
     --password <text>     recipients must enter this
     --expires <days>      lifetime, clamped to your plan
+  yungle get <link>                       download a transfer sent to you
+    --out <dir>           where to save (default: current directory)
+    --zip                 one zip instead of separate files
   yungle push <paths…> --collection <id>  upload into a collection
     --folder <id>         target folder
   yungle ls transfers|collections|contacts
@@ -95,6 +108,8 @@ export async function main(argv: string[]): Promise<number> {
         return await auth(positionals, flags, json);
       case 'send':
         return await send(positionals, flags, json);
+      case 'get':
+        return await get(positionals, flags, json);
       case 'push':
         return await push(positionals, flags, json);
       case 'ls':
@@ -259,6 +274,90 @@ async function send(
         ? `Emailed ${finalized.notified.join(', ')}`
         : 'Link only — nobody was emailed.',
     ].join('\n'),
+  );
+}
+
+/**
+ * Download a transfer from its link. Needs no key — see get.ts.
+ *
+ * Files go one at a time rather than in a pool: a download is bounded by the
+ * recipient's line, not by per-request latency, so parallelism buys little and
+ * would make the resume state per file harder to reason about.
+ */
+async function get(
+  positionals: string[],
+  flags: Record<string, string | boolean>,
+  json: boolean,
+): Promise<number> {
+  const input = positionals[0];
+  if (!input) {
+    process.stderr.write('Usage: yungle get <link> [--out <dir>] [--zip]\n');
+    return 2;
+  }
+  const apiBase = stringFlag(flags.url) ?? cachedBaseUrl ?? 'https://yungle.co/api/v1';
+  const link = parseTransferLink(input, new URL(apiBase).origin);
+  const outDir = resolve(stringFlag(flags.out) ?? '.');
+
+  let password = stringFlag(flags.password);
+  let manifest: Manifest;
+  for (;;) {
+    try {
+      manifest = await fetchManifest(link, password, USER_AGENT);
+      break;
+    } catch (err) {
+      const needsPassword = err instanceof ManifestError && (err.code === 'password_required' || err.code === 'wrong_password');
+      if (!needsPassword || !process.stdin.isTTY || json) {
+        if (err instanceof ManifestError && err.code === 'password_required') {
+          throw new Error('This transfer is password protected. Pass --password, or run it in a terminal to be asked.');
+        }
+        throw err;
+      }
+      if (err.code === 'wrong_password') process.stderr.write('That password is not right.\n');
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      password = (await rl.question('Password: ')).trim();
+      rl.close();
+      if (!password) return 2;
+    }
+  }
+
+  if (manifest.e2ee) {
+    throw new Error(
+      'This transfer is end-to-end encrypted, so only a browser holding the key in the link can open it. ' +
+        'Open the link in a browser. (`yungle get` does not decrypt yet.)',
+    );
+  }
+  if (manifest.files.length === 0) return out(json, { saved: [] }, 'This transfer has no files.');
+
+  const useZip = flags.zip === true && manifest.zipUrl !== null;
+  const jobs = useZip
+    ? [{ url: manifest.zipUrl!, name: `yungle-${link.slug}.zip`, size: null as number | null }]
+    : dedupeNames(manifest.files.map((f) => safeFileName(f.name))).map((name, i) => ({
+        url: manifest.files[i]!.downloadUrl,
+        name,
+        size: manifest.files[i]!.size as number | null,
+      }));
+
+  const total = useZip ? null : manifest.files.reduce((n, f) => n + f.size, 0);
+  let received = 0;
+  const started = Date.now();
+  const saved: string[] = [];
+  for (const [i, job] of jobs.entries()) {
+    const dest = join(outDir, job.name);
+    await downloadTo(job.url, dest, job.size, USER_AGENT, (n) => {
+      received += n;
+      const rate = received / Math.max(1, (Date.now() - started) / 1000);
+      const of = total ? ` of ${formatBytes(total)}` : '';
+      progress(`\r  ${pad(`${formatBytes(received)}${of}`, 24)}${pad(`${formatBytes(rate)}/s`, 12)}${i + 1}/${jobs.length} files   `);
+    });
+    saved.push(dest);
+  }
+  progress('\n');
+
+  const note = manifest.message ? `\n“${manifest.message}”` : '';
+  return out(
+    json,
+    { saved, message: manifest.message, expiresAt: manifest.expiresAt },
+    `Saved ${saved.length === 1 ? saved[0] : `${saved.length} files to ${outDir}`}${note}`,
   );
 }
 
@@ -510,7 +609,10 @@ function fail(err: unknown, json: boolean): number {
     return 1;
   }
   const message = err instanceof Error ? err.message : String(err);
-  if (json) process.stdout.write(`${JSON.stringify({ error: { code: 'cli_error', message } }, null, 2)}\n`);
+  // A download error carries the server's code (wrong_password, expired, …),
+  // which a script branches on; everything else is ours.
+  const code = err instanceof ManifestError ? err.code : 'cli_error';
+  if (json) process.stdout.write(`${JSON.stringify({ error: { code, message } }, null, 2)}\n`);
   else process.stderr.write(`${message}\n`);
   return 1;
 }
