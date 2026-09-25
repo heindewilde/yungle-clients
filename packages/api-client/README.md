@@ -17,7 +17,7 @@ const yungle = new YungleClient({ apiKey: process.env.YUNGLE_API_KEY! });
 const { transfers } = await yungle.listTransfers();
 const { downloads } = await yungle.transferDownloads(transfers[0].id);
 
-// Sending needs a paid plan.
+// Sending works on the free plan too; collections need a paid one.
 const draft = await yungle.createTransfer({
   files: [{ name: 'final-cut.mov', size: 8_123_456_789 }],
 });
@@ -25,8 +25,8 @@ const draft = await yungle.createTransfer({
 await yungle.finalizeTransfer(draft.transfer.id, { recipients: ['client@example.com'] });
 ```
 
-Get a key from Settings → API keys. Reads are free; creating, sending and
-uploading come with a paid plan.
+Get a key from Settings → API keys. Every account can use the API: transfers and contacts on the free plan,
+collections on a paid one. The first 10 GB of API uploads each month are free.
 
 ## What it does and doesn't do
 
@@ -46,10 +46,10 @@ uploading come with a paid plan.
 import { YungleApiError } from 'yungle-client';
 
 try {
-  await yungle.createTransfer({ files });
+  await yungle.createCollection({ title: 'Client deliveries' });
 } catch (err) {
   if (err instanceof YungleApiError && err.code === 'upgrade_required') {
-    // Reads are free; this is a write.
+    // A free account wrote to a collection; collections come with a plan.
   }
 }
 ```

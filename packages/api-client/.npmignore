@@ -1,0 +1,19 @@
+# This file exists to be EMPTY of rules, and deleting it breaks the package.
+#
+# The root .gitignore has `dist/`. With no .npmignore present, npm falls back to
+# .gitignore for exclusions — and it does that even when `files` names `dist`
+# explicitly, so the bundle was filtered out of the tarball while the type
+# declarations survived (npm force-includes files referenced by `main`, `bin` and
+# `types`, but NOT the targets of `exports`).
+#
+# The result was a 7.2 kB package with dist/index.d.ts and no dist/index.mjs:
+# fully typed, and impossible to import. `npm pack --dry-run` was the only thing
+# that showed it — the build succeeded, the files were on disk, and every local
+# import resolved through the workspace symlink rather than the tarball.
+#
+# yungle-cli and yungle-mcp escaped this only because their entry points are
+# `bin`, which npm force-includes. They are not a precedent for a library.
+#
+# An .npmignore, even an empty one, stops npm consulting .gitignore at all, so
+# `files` in package.json becomes the single source of truth. Check any change
+# here with `npm pack --dry-run`, never by looking at dist/.

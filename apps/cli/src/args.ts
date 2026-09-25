@@ -34,6 +34,12 @@ const VALUE_FLAGS = new Set([
   'out',
   'url',
   'key',
+  // `yungle mcp install --client cursor` silently installed into EVERY client
+  // before this was added: the flag parsed as a boolean, `cursor` became a stray
+  // positional, and the filter was never applied. The help text promised
+  // `--client <id>`, so the command line was correct and the parser was not.
+  // `helpFlagsAreParsed` in args.test.ts now derives this from HELP.
+  'client',
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {

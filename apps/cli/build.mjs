@@ -1,5 +1,7 @@
 import { build } from 'esbuild';
-import { chmod } from 'node:fs/promises';
+import { chmod, readFile } from 'node:fs/promises';
+
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 
 /**
  * Bundle the CLI into one publishable file.
@@ -23,6 +25,7 @@ await build({
   platform: 'node',
   target: 'node22',
   format: 'esm',
+  define: { __YUNGLE_CLI_VERSION__: JSON.stringify(version) },
   external: ['tus-js-client'],
   banner: {
     // The shebang and the entry call, prepended rather than kept in a separate

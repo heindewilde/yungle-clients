@@ -13,6 +13,14 @@ import {
   type UploadSession,
 } from './config';
 import { collectFiles, formatBytes, pairWithTargets, toFileInputs } from './files';
+import {
+  mcpClients,
+  mergeServerEntry,
+  serverEntry,
+  writeScopes,
+  type ClientId,
+  type McpClient,
+} from './mcp-install';
 import { uploadAll } from './upload';
 
 /**
@@ -27,7 +35,13 @@ import { uploadAll } from './upload';
  * works without the progress meter landing in the pipe.
  */
 
-const HELP = `yungle — send and sync files with Yungle
+// Replaced with the package version by the build; `dev` under tsx and in tests.
+declare const __YUNGLE_CLI_VERSION__: string | undefined;
+export const CLI_VERSION =
+  typeof __YUNGLE_CLI_VERSION__ === 'string' ? __YUNGLE_CLI_VERSION__ : 'dev';
+const USER_AGENT = `yungle-cli/${CLI_VERSION}`;
+
+export const HELP = `yungle — send and sync files with Yungle
 
   yungle auth login                       save an API key
   yungle auth status                      show which key is in use
@@ -41,6 +55,11 @@ const HELP = `yungle — send and sync files with Yungle
     --folder <id>         target folder
   yungle ls transfers|collections|contacts
   yungle rm transfer <id>                 revoke a transfer
+  yungle mcp install                      let an AI assistant read your Yungle
+    --client <id>         claude-desktop | claude-code | cursor | windsurf
+    --dry-run             show what would change, write nothing
+  yungle mcp status                       show where it is installed
+  yungle --version                        print the version
 
 Global flags
   --json                  machine-readable output
@@ -67,6 +86,11 @@ export async function main(argv: string[]): Promise<number> {
       case '-h':
         process.stdout.write(`${HELP}\n`);
         return 0;
+      case 'version':
+      case '--version':
+      case '-v':
+        process.stdout.write(json ? `${JSON.stringify({ version: CLI_VERSION })}\n` : `${CLI_VERSION}\n`);
+        return 0;
       case 'auth':
         return await auth(positionals, flags, json);
       case 'send':
@@ -77,6 +101,8 @@ export async function main(argv: string[]): Promise<number> {
         return await list(positionals, flags, json);
       case 'rm':
         return await remove(positionals, flags, json);
+      case 'mcp':
+        return await mcp(positionals, flags, json);
       default:
         process.stderr.write(`Unknown command: ${command}\n\n${HELP}\n`);
         return 2;
@@ -116,7 +142,7 @@ async function auth(
 
     // Verify before saving. Storing a key that does not work turns the next
     // command's 401 into "is it my key or my request?".
-    const client = new YungleClient({ apiKey: key, baseUrl: stringFlag(flags.url) });
+    const client = new YungleClient({ apiKey: key, baseUrl: stringFlag(flags.url), userAgent: USER_AGENT });
     const me = await client.me();
 
     const config = await readConfig();
@@ -378,7 +404,7 @@ async function remove(
 function client(flags: Record<string, string | boolean>): YungleClient {
   const apiKey = process.env.YUNGLE_API_KEY?.trim() ?? cachedKey;
   if (!apiKey) throw new NotSignedIn();
-  return new YungleClient({ apiKey, baseUrl: stringFlag(flags.url) ?? cachedBaseUrl });
+  return new YungleClient({ apiKey, baseUrl: stringFlag(flags.url) ?? cachedBaseUrl, userAgent: USER_AGENT });
 }
 
 class NotSignedIn extends Error {
@@ -487,4 +513,270 @@ function fail(err: unknown, json: boolean): number {
   if (json) process.stdout.write(`${JSON.stringify({ error: { code: 'cli_error', message } }, null, 2)}\n`);
   else process.stderr.write(`${message}\n`);
   return 1;
+}
+
+// ── yungle mcp ──────────────────────────────────────────────────────────────
+
+/**
+ * Install the Yungle MCP server into whichever agent clients are present.
+ *
+ * The point is to remove five steps that each lose people: find the config file,
+ * learn its schema, edit it without breaking the servers already in it, paste a
+ * key, restart. The safety rules for touching those files live in
+ * `mcp-install.ts`; this function is the I/O around them.
+ */
+async function mcp(
+  positionals: string[],
+  flags: Record<string, string | boolean>,
+  json: boolean,
+): Promise<number> {
+  const sub = positionals[0] ?? 'install';
+  if (sub !== 'install' && sub !== 'status') {
+    process.stderr.write('Usage: yungle mcp install | yungle mcp status\n');
+    return 2;
+  }
+
+  const { readFile, writeFile, mkdir, copyFile } = await import('node:fs/promises');
+  const { dirname } = await import('node:path');
+  const all = mcpClients();
+  const only = stringFlag(flags.client);
+  if (only && !all.some((c) => c.id === only)) {
+    process.stderr.write(
+      `Unknown client: ${only}. Known: ${all.map((c) => c.id).join(', ')}\n`,
+    );
+    return 2;
+  }
+  const targets = only ? all.filter((c) => c.id === only) : all;
+
+  // `status` reads and reports; it needs no credential, which matters because
+  // "where is this installed" is exactly what someone asks when their key is the
+  // thing that is wrong.
+  if (sub === 'status') {
+    const rows: Array<{ client: ClientId; path: string | null; installed: boolean }> = [];
+    for (const c of targets) {
+      let installed = false;
+      if (c.configPath) {
+        try {
+          const doc = JSON.parse(await readFile(c.configPath, 'utf8')) as Record<string, unknown>;
+          const servers = doc[c.serversKey];
+          installed =
+            !!servers && typeof servers === 'object' && 'yungle' in (servers as object);
+        } catch {
+          installed = false;
+        }
+      }
+      rows.push({ client: c.id, path: c.configPath, installed });
+    }
+    return out(
+      json,
+      { clients: rows },
+      rows
+        .map(
+          (r) =>
+            `${pad(r.client, 16)} ${r.installed ? 'installed' : r.path ? 'not installed' : 'n/a on this platform'}`,
+        )
+        .join('\n'),
+    );
+  }
+
+  // ── install ───────────────────────────────────────────────────────────────
+  const resolved = await resolveKey();
+  if (!resolved) {
+    process.stderr.write(
+      `No API key. Run \`yungle auth login\` first, or set YUNGLE_API_KEY.\nGet a key at https://yungle.co/dashboard/settings/api — reading is free on any plan.\n`,
+    );
+    return 1;
+  }
+
+  /**
+   * Refuse a key that can write.
+   *
+   * The MCP server has no tool that mutates anything, so a write scope buys
+   * nothing here and costs real safety: a model can be steered by a filename in
+   * a collection it was asked to summarise, and MCP has no confirmation
+   * primitive. The only durable guarantee is a credential that cannot mutate.
+   *
+   * This is the one part of install that needs the network. It fails CLOSED — if
+   * the scopes cannot be read, nothing is written, because installing a key of
+   * unknown power into an agent's config is the outcome worth avoiding.
+   */
+  let scopes: string[];
+  try {
+    const me = await client(flags).me();
+    scopes = me.key.scopes ?? [];
+  } catch (err) {
+    process.stderr.write(
+      `Could not check what this key is allowed to do: ${(err as Error).message}\n` +
+        `Not installing — an agent should never get a key of unknown scope.\n`,
+    );
+    return 1;
+  }
+  const writes = writeScopes(scopes);
+  if (writes.length > 0) {
+    process.stderr.write(
+      `This key can write (${writes.join(', ')}).\n\n` +
+        `The MCP server has no tool that sends, invites, revokes or deletes, so a\n` +
+        `write scope grants an assistant nothing it can use — but it does put a\n` +
+        `credential that can change your account into a config file an assistant\n` +
+        `reads. Create a read-only key instead:\n\n` +
+        `  https://yungle.co/dashboard/settings/api\n\n` +
+        `then \`yungle auth login\` with it and re-run this.\n`,
+    );
+    return 1;
+  }
+
+  const entry = serverEntry({ apiKey: resolved.apiKey, baseUrl: resolved.baseUrl });
+  const dryRun = flags['dry-run'] === true;
+  const results: Array<{ client: ClientId; action: string; path?: string; detail?: string }> = [];
+
+  for (const c of targets) {
+    const r = await installInto(c, entry, { dryRun, readFile, writeFile, mkdir, copyFile, dirname });
+    results.push({ client: c.id, ...r });
+  }
+
+  const changed = results.filter((r) => r.action === 'added' || r.action === 'updated');
+  const lines = results.map((r) => `${pad(r.client, 16)} ${r.action}${r.detail ? ` — ${r.detail}` : ''}`);
+
+  if (changed.length > 0 && !dryRun) {
+    lines.push('');
+    // Every one of these clients reads its MCP config at startup only. Without
+    // this line the install looks like it silently failed.
+    lines.push('Restart the client(s) above to pick it up.');
+    lines.push('Then ask: "what did I send recently?" or "did the client download it?"');
+    lines.push('');
+    lines.push(`Your API key is now also in ${changed.length === 1 ? 'that config file' : 'those config files'}, in plain text.`);
+  }
+  if (changed.length === 0 && !dryRun) {
+    lines.push('');
+    lines.push('Nothing to do. `yungle mcp status` shows where it is installed.');
+  }
+
+  return out(json, { installed: results, dryRun }, lines.join('\n'));
+}
+
+/** One client's config. Returns what happened rather than printing, so `--json` works. */
+async function installInto(
+  c: McpClient,
+  entry: ReturnType<typeof serverEntry>,
+  io: {
+    dryRun: boolean;
+    readFile: (p: string, e: 'utf8') => Promise<string>;
+    writeFile: (p: string, d: string, o?: object) => Promise<void>;
+    mkdir: (p: string, o?: object) => Promise<unknown>;
+    copyFile: (a: string, b: string) => Promise<void>;
+    dirname: (p: string) => string;
+  },
+): Promise<{ action: string; path?: string; detail?: string }> {
+  if (!c.configPath) return { action: 'skipped', detail: 'not available on this platform' };
+
+  /**
+   * Claude Code owns `~/.claude.json`, which carries conversation state, project
+   * history and onboarding flags as well as MCP servers — and it rewrites that
+   * file underneath us. Hand-editing it is unsupported, so delegate.
+   */
+  if (c.viaCli) {
+    const { spawnSync } = await import('node:child_process');
+    const probe = spawnSync(c.viaCli.bin, ['--version'], { stdio: 'ignore', shell: false });
+    if (probe.error) return { action: 'skipped', detail: `${c.viaCli.bin} not installed` };
+    if (io.dryRun) {
+      return { action: 'would run', detail: `${c.viaCli.bin} mcp add-json -s user yungle …` };
+    }
+
+    /**
+     * `add-json` refuses an existing name rather than replacing it, so a second
+     * run reported `failed` for something that was in fact installed — and, worse,
+     * a run after `yungle auth login` left the OLD key in place while looking like
+     * it had merely done nothing.
+     *
+     * So remove first. The removal is allowed to fail: on a clean machine there is
+     * nothing to remove, and that is the normal case rather than an error.
+     */
+    const existed =
+      spawnSync(c.viaCli.bin, ['mcp', 'get', 'yungle'], { stdio: 'ignore', shell: false })
+        .status === 0;
+    if (existed) {
+      spawnSync(c.viaCli.bin, ['mcp', 'remove', '-s', 'user', 'yungle'], {
+        stdio: 'ignore',
+        shell: false,
+      });
+    }
+
+    const res = spawnSync(c.viaCli.bin, c.viaCli.args('yungle', JSON.stringify(entry)), {
+      stdio: 'pipe',
+      shell: false,
+      encoding: 'utf8',
+    });
+    if (res.status !== 0) {
+      const why = (res.stderr || res.stdout || '').trim().split('\n')[0] || `exit ${res.status}`;
+      return { action: 'failed', detail: why };
+    }
+    return {
+      action: existed ? 'updated' : 'added',
+      detail: `via ${c.viaCli.bin} mcp add-json`,
+    };
+  }
+
+  // Only touch a client that is actually installed. Creating the config for one
+  // that is not present writes a file nothing reads and reports a success that
+  // did not happen.
+  let raw: string | null = null;
+  try {
+    raw = await io.readFile(c.configPath, 'utf8');
+  } catch {
+    let dirExists = true;
+    try {
+      await io.readFile(io.dirname(c.configPath), 'utf8');
+    } catch (err) {
+      // EISDIR means the directory is there, which is what we are testing for.
+      dirExists = (err as NodeJS.ErrnoException).code === 'EISDIR';
+    }
+    if (!dirExists) return { action: 'skipped', detail: 'not installed' };
+  }
+
+  /**
+   * A config we cannot parse is a config we must not write.
+   *
+   * It holds every other MCP server this person has set up. Overwriting it with
+   * a fresh document containing only Yungle would be the single worst thing this
+   * command could do, and "it had a trailing comma" is not a reason to do it.
+   */
+  let existing: unknown = {};
+  if (raw !== null && raw.trim() !== '') {
+    try {
+      existing = JSON.parse(raw);
+    } catch {
+      return {
+        action: 'refused',
+        path: c.configPath,
+        detail: `${c.configPath} is not valid JSON — fix or move it, nothing was written`,
+      };
+    }
+    if (existing === null || typeof existing !== 'object' || Array.isArray(existing)) {
+      return {
+        action: 'refused',
+        path: c.configPath,
+        detail: `${c.configPath} is not a JSON object — nothing was written`,
+      };
+    }
+  }
+
+  const merged = mergeServerEntry(existing, c.serversKey, 'yungle', entry);
+  if (merged.kind === 'unchanged') return { action: 'already current', path: c.configPath };
+  if (io.dryRun) {
+    return { action: `would be ${merged.kind}`, path: c.configPath, detail: c.configPath };
+  }
+
+  // Back up before the first modification. Cheap, and the difference between an
+  // annoyance and a person losing their agent setup.
+  if (raw !== null) {
+    try {
+      await io.copyFile(c.configPath, `${c.configPath}.yungle-bak`);
+    } catch {
+      // A failed backup is not a reason to abort — the merge preserves
+      // everything by construction and is unit-tested to. But say so.
+    }
+  }
+  await io.mkdir(io.dirname(c.configPath), { recursive: true });
+  await io.writeFile(c.configPath, `${JSON.stringify(merged.config, null, 2)}\n`, { mode: 0o600 });
+  return { action: merged.kind, path: c.configPath, detail: c.configPath };
 }

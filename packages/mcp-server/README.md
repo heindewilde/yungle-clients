@@ -17,7 +17,7 @@ transfers and collections.
 }
 ```
 
-Create a key at Settings → API keys. The API is available on any paid plan.
+Create a read-only key at Settings → API keys. It works on every plan, free included.
 
 ## What it is for
 

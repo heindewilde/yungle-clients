@@ -1,0 +1,40 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+  schedule:
+    - cron: '17 6 * * *' # the contract check catches API changes on days nothing here changed
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ matrix.node }}', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - name: Tarballs contain what they must
+        run: |
+          set -e
+          for p in apps/cli packages/mcp-server packages/api-client; do
+            (cd $p && npm pack --dry-run --json > /tmp/pack.json)
+            node -e "const [{files}]=require('/tmp/pack.json');const d=files.filter(f=>f.path.startsWith('dist/'));if(!d.length){console.error('$p: no dist/ in tarball');process.exit(1)}console.log('$p:',d.map(f=>f.path).join(' '))"
+          done
+      - name: Built CLI runs
+        run: node apps/cli/dist/yungle.mjs --version
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node scripts/contract.mjs

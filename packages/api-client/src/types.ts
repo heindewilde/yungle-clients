@@ -23,7 +23,8 @@ export interface Workspace {
   id: string;
   email: string | null;
   displayName: string | null;
-  handle: string | null;
+  /** The workspace's verified custom domain, or null. */
+  customDomain: string | null;
 }
 
 export interface PlanInfo {
@@ -107,6 +108,15 @@ export interface RecipientStatus {
   email: string;
   notifiedAt: Iso8601 | null;
   downloaded: boolean;
+  /** Loaded the link. Recorded from a browser, so link scanners do not count. */
+  opened: boolean;
+  /**
+   * Set when mail to this address permanently failed. Additive since 2026-09;
+   * clients that predate it are unaffected.
+   */
+  bouncedAt: Iso8601 | null;
+  /** 'hard_bounce' | 'blocked' | 'refused', or null. */
+  bounceKind: string | null;
 }
 
 export interface DownloadEvent {
@@ -116,6 +126,7 @@ export interface DownloadEvent {
   recipientEmail: string | null;
   /** One page visit is one download; several files in it share this. */
   sessionId: string;
+  /** Always null since 2026-09 — the truncated IP is no longer recorded. */
   ipTruncated: string | null;
   createdAt: Iso8601;
 }

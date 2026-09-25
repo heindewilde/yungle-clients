@@ -1,6 +1,6 @@
 {
   "name": "yungle-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "exports": {
     ".": {
@@ -10,20 +10,19 @@
     }
   },
   "scripts": {
-    "build": "node build.mjs && tsc -p tsconfig.build.json",
+    "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/*.test.ts",
-    "lint": "eslint .",
-    "prepublishOnly": "node build.mjs && tsc -p tsconfig.build.json",
-    "prepare": "node build.mjs && tsc -p tsconfig.build.json"
+    "prepublishOnly": "node build.mjs",
+    "prepare": "node build.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.28.1"
   },
-  "description": "Typed client for the Yungle API \u2014 send file transfers, build collections and sync contacts from Node.",
+  "description": "Typed client for the Yungle API — send file transfers, build collections and sync contacts from Node.",
   "license": "MIT",
   "author": "Hein de Wilde",
   "repository": {

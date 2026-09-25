@@ -18,9 +18,15 @@ import { UNTRUSTED_NOTE, wrapUntrusted } from './untrusted';
  * default — see `create_transfer`.
  */
 
+// Replaced with the package version by the build; `dev` under tsx and in tests.
+// It used to be a literal '0.1.0' that no release ever updated.
+declare const __YUNGLE_MCP_VERSION__: string | undefined;
+export const MCP_VERSION =
+  typeof __YUNGLE_MCP_VERSION__ === 'string' ? __YUNGLE_MCP_VERSION__ : 'dev';
+
 export function createServer(client: YungleClient): McpServer {
   const server = new McpServer(
-    { name: 'yungle', version: '0.1.0' },
+    { name: 'yungle', version: MCP_VERSION },
     {
       instructions: [
         'Yungle is a private, EU-based file transfer service.',
@@ -40,7 +46,8 @@ export function createServer(client: YungleClient): McpServer {
     {
       title: 'Account and storage',
       description:
-        'The workspace behind this connection: plan, storage used and remaining, and what this key is allowed to do.',
+        'Answers: how much storage am I using? how much is left? what plan am I on? what can this ' +
+        'connection do? Returns the workspace, its plan and quota, and the key\'s permissions.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -52,7 +59,9 @@ export function createServer(client: YungleClient): McpServer {
     {
       title: 'List transfers',
       description:
-        'Recent transfers with size, download count, expiry and share link. Use this to answer questions about what was sent, to whom, and whether it has been collected.',
+        'Answers: what have I sent recently? what is expiring soon? which deliveries has nobody ' +
+        'picked up? who did I send that to? Returns recent transfers with size, recipients, ' +
+        'download count, expiry date and share link. Start here for any question about sent files.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -67,7 +76,9 @@ export function createServer(client: YungleClient): McpServer {
     {
       title: 'Transfer detail',
       description:
-        'One transfer: its files, malware-scan verdicts, and per-recipient delivery and download status.',
+        'Answers: what is in this transfer? was it delivered? has a specific recipient opened it? ' +
+        'is it safe to share? Returns the files with their malware-scan verdicts, plus per-recipient ' +
+        'delivery and download status. Needs an id from list_transfers.',
       inputSchema: { id: z.string().describe('Transfer id from list_transfers.') },
       annotations: { readOnlyHint: true },
     },
@@ -79,7 +90,10 @@ export function createServer(client: YungleClient): McpServer {
     {
       title: 'Download receipts',
       description:
-        'Who downloaded a transfer and when. IMPORTANT: one page visit is one download, not one per file — events sharing a sessionId are a single visit. Count distinct sessions.',
+        'Answers: did the client download it? when? how many times? Returns download events with ' +
+        'timestamps and per-recipient status. IMPORTANT when counting: one page visit is one ' +
+        'download, not one per file — events sharing a sessionId are a single visit, so count ' +
+        'distinct sessions or a single visitor looks like eight.',
       inputSchema: { id: z.string() },
       annotations: { readOnlyHint: true },
     },
@@ -90,7 +104,11 @@ export function createServer(client: YungleClient): McpServer {
     'list_collections',
     {
       title: 'List collections',
-      description: 'Collections in this workspace, with file counts and sizes. Never includes the vault.',
+      description:
+        'Answers: what collections do I have? which are empty? how big is each one? Returns ' +
+        'collections with file counts, sizes and when each was last touched. A collection is a ' +
+        'durable space clients are invited into, as opposed to a one-off transfer. Never includes ' +
+        'the vault, which is unreadable to this server by design.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -101,7 +119,10 @@ export function createServer(client: YungleClient): McpServer {
     'get_collection',
     {
       title: 'Collection detail',
-      description: 'One collection, with its share link, file count and total size.',
+      description:
+        'Answers: what is the link for this collection? how much is in it? when does it expire? ' +
+        'Returns one collection with its secret share link, file count, total size and expiry. ' +
+        'Needs an id from list_collections.',
       inputSchema: { id: z.string() },
       annotations: { readOnlyHint: true },
     },
@@ -113,7 +134,9 @@ export function createServer(client: YungleClient): McpServer {
     {
       title: 'Files in a collection',
       description:
-        'Files, optionally within one folder. Omit folderId for everything; pass "root" for the top level only.',
+        'Answers: what files are in this collection? what is in this folder? are the raws uploaded ' +
+        'yet? Returns filenames, sizes and types. Omit folderId for every file; pass "root" for the ' +
+        'top level only, or a folder id from list_folders. Filenames only — never file contents.',
       inputSchema: { id: z.string(), folderId: z.string().optional() },
       annotations: { readOnlyHint: true },
     },
@@ -125,7 +148,9 @@ export function createServer(client: YungleClient): McpServer {
     {
       title: 'Folders in a collection',
       description:
-        'The folder tree. Ordered by depth then path, which is NOT a pre-order traversal — build the tree from parentId rather than the order returned. Each folder also carries its full path.',
+        'Answers: how is this collection organised? what folders exist? Returns the folder tree. ' +
+        'Ordered by depth then path, which is NOT a pre-order traversal — build the tree from ' +
+        'parentId rather than trusting the order. Each folder also carries its full materialised path.',
       inputSchema: { id: z.string() },
       annotations: { readOnlyHint: true },
     },
@@ -137,7 +162,9 @@ export function createServer(client: YungleClient): McpServer {
     {
       title: 'Guests on a collection',
       description:
-        'People invited to view one collection. Guests are not workspace members: they can view and download that collection and nothing else.',
+        'Answers: who has access to this collection? who did I invite? has someone accepted? ' +
+        'Returns the invited guests and their status. Guests are not workspace members — they can ' +
+        'view and download this one collection and nothing else.',
       inputSchema: { id: z.string() },
       annotations: { readOnlyHint: true },
     },
@@ -148,7 +175,9 @@ export function createServer(client: YungleClient): McpServer {
     'list_contacts',
     {
       title: 'Address book',
-      description: 'Contacts in this workspace. A contact grants no access on its own.',
+      description:
+        'Answers: what is this client\'s email address? who do I have saved? Returns the workspace ' +
+        'address book. A contact grants no access on its own — it is a convenience, not a permission.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -233,6 +262,7 @@ export async function startStdioServer(): Promise<void> {
   const client = new YungleClient({
     apiKey,
     baseUrl: process.env.YUNGLE_API_URL?.trim() || undefined,
+    userAgent: `yungle-mcp/${MCP_VERSION}`,
   });
 
   // Fail loudly at startup rather than on the first tool call. A key that is

@@ -1,0 +1,13 @@
+# .github/workflows/deliver.yml: send the build output to a client after each release.
+name: deliver
+on:
+  release: { types: [published] }
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make dist
+      - run: npx -y yungle-cli send dist/ --title "${{ github.ref_name }}" --to client@example.com --json
+        env:
+          YUNGLE_API_KEY: ${{ secrets.YUNGLE_API_KEY }} # a key with transfers:write only

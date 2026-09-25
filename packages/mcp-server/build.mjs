@@ -1,5 +1,7 @@
 import { build } from 'esbuild';
-import { chmod } from 'node:fs/promises';
+import { chmod, readFile } from 'node:fs/promises';
+
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 
 /**
  * Same reasoning as the CLI's build: this is published to npm and run with
@@ -15,6 +17,7 @@ await build({
   platform: 'node',
   target: 'node22',
   format: 'esm',
+  define: { __YUNGLE_MCP_VERSION__: JSON.stringify(version) },
   external: ['@modelcontextprotocol/sdk', 'zod'],
   banner: { js: '#!/usr/bin/env node' },
   footer: { js: 'await startStdioServer();' },

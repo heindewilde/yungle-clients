@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Account, billing or a transfer that went wrong
+    url: mailto:hello@yungle.co
+    about: The Yungle service itself is supported by email, not here.
+  - name: Security issue
+    url: https://yungle.co/.well-known/security.txt
+    about: Please report privately, not as an issue.

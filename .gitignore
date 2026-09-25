@@ -1,49 +1,6 @@
-# dependencies
 node_modules/
-.pnpm-store/
-
-# builds
 dist/
-.next/
-out/
 *.tsbuildinfo
-
-# env & secrets
-.env
-.env.local
-.env.*.local
-.env.*.bak
-secrets/
-*.kek
-
-# provisioning: terraform state + tfvars hold the Hetzner API token / IPs
-deploy/terraform/.terraform/
-deploy/terraform/*.tfstate
-deploy/terraform/*.tfstate.*
-deploy/terraform/*.tfvars
-!deploy/terraform/*.tfvars.example
-deploy/answers.env
-
-# logs
 *.log
-npm-debug.log*
-
-# os / editor
 .DS_Store
-.idea/
-.vscode/*
-!.vscode/extensions.json
-
-# docker / data
-data/
-.docker-data/
-
-# test / coverage
-coverage/
-.env.dev
-.bench/
-
-# Playwright
-apps/web/e2e/.auth.json
-apps/web/playwright-report/
-apps/web/test-results/
+.env

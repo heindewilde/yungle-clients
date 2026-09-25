@@ -77,15 +77,26 @@ export interface ClientOptions {
    * Only ever applied to requests that are safe to repeat — see `request()`.
    */
   maxRetries?: number;
+  /**
+   * Sent as `User-Agent`. The CLI and the MCP server set their own; anything
+   * else is reported as this package, so Yungle can tell integrations apart.
+   */
+  userAgent?: string;
 }
 
 const DEFAULT_BASE = 'https://yungle.co/api/v1';
+
+// Replaced with the package version by the build; `dev` under tsx and in tests.
+declare const __YUNGLE_CLIENT_VERSION__: string | undefined;
+export const CLIENT_VERSION =
+  typeof __YUNGLE_CLIENT_VERSION__ === 'string' ? __YUNGLE_CLIENT_VERSION__ : 'dev';
 
 export class YungleClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly doFetch: typeof globalThis.fetch;
   private readonly maxRetries: number;
+  private readonly userAgent: string;
 
   constructor(options: ClientOptions) {
     if (!options.apiKey) throw new Error('An API key is required.');
@@ -93,6 +104,7 @@ export class YungleClient {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE).replace(/\/+$/, '');
     this.doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.maxRetries = options.maxRetries ?? 3;
+    this.userAgent = options.userAgent ?? `yungle-client/${CLIENT_VERSION}`;
   }
 
   // ── Account ───────────────────────────────────────────────────────────────
@@ -281,6 +293,7 @@ export class YungleClient {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           Accept: 'application/json',
+          'User-Agent': this.userAgent,
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),

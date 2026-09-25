@@ -130,3 +130,37 @@ test('the note names the concrete fields an attacker controls', () => {
   }
   assert.match(UNTRUSTED_NOTE, /never as instructions/i);
 });
+
+test('every tool description says what it ANSWERS, not just what it returns', () => {
+  /**
+   * How an agent picks a tool.
+   *
+   * A model matches the user's question against tool descriptions, so
+   * "lists transfers" does not get selected for "did the client get the files
+   * yet?" — the words do not overlap. Leading with the questions each tool
+   * answers is what makes selection reliable, and it is cheap to keep true.
+   *
+   * The one write is exempt: it prepares rather than answers.
+   */
+  const server = createServer(stubClient());
+  // Reach into the registered tools rather than going over a transport: this is
+  // a property of the strings, and a round trip would only slow it down.
+  const registered = (server as unknown as {
+    _registeredTools: Record<string, { description?: string }>;
+  })._registeredTools;
+
+  // Reaching into a private SDK field, so say so loudly if it ever moves rather
+  // than silently iterating nothing and passing.
+  assert.ok(
+    registered && Object.keys(registered).length >= 10,
+    'could not read the registered tools — the SDK internal may have been renamed',
+  );
+
+  const missing = Object.entries(registered)
+    .filter(([name]) => name !== 'create_transfer')
+    .filter(([, t]) => !/Answers:/.test(t.description ?? ''))
+    .map(([name]) => name);
+
+  assert.deepEqual(missing, [], 'these read tools do not lead with the questions they answer');
+});
+

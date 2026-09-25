@@ -1,0 +1,15 @@
+name: Bug
+description: Something in the CLI, the MCP server or the SDK does not work
+body:
+  - type: dropdown
+    id: package
+    attributes: { label: Package, options: [yungle-cli, yungle-mcp, yungle-client] }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Version, description: '`yungle --version`, or the version in package.json' }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: The command or code, what you expected, what you got. Never paste an API key. }
+    validations: { required: true }

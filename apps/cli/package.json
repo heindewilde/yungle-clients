@@ -1,6 +1,6 @@
 {
   "name": "yungle-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Send and sync files with Yungle from the command line.",
   "bin": {
@@ -13,7 +13,6 @@
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/*.test.ts",
-    "lint": "eslint .",
     "dev": "node --import tsx bin/yungle.mjs",
     "prepublishOnly": "node build.mjs"
   },

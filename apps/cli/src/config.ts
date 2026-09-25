@@ -151,16 +151,16 @@ export async function findSession(key: string): Promise<UploadSession | null> {
 export async function saveSession(key: string, session: UploadSession): Promise<void> {
   const sessions = await readSessions();
   sessions[key] = session;
-  await mkdir(dirname(RESUME_PATH), { recursive: true });
-  await writeFile(RESUME_PATH, JSON.stringify(sessions));
+  await mkdir(dirname(RESUME_PATH), { recursive: true, mode: 0o700 });
+  await writeFile(RESUME_PATH, JSON.stringify(sessions), { mode: 0o600 });
 }
 
 export async function dropSession(key: string): Promise<void> {
   const sessions = await readSessions();
   if (!(key in sessions)) return;
   delete sessions[key];
-  await mkdir(dirname(RESUME_PATH), { recursive: true });
-  await writeFile(RESUME_PATH, JSON.stringify(sessions));
+  await mkdir(dirname(RESUME_PATH), { recursive: true, mode: 0o700 });
+  await writeFile(RESUME_PATH, JSON.stringify(sessions), { mode: 0o600 });
 }
 
 // ── tus upload URLs ─────────────────────────────────────────────────────────
@@ -189,8 +189,8 @@ export async function saveUploadUrl(fileId: string, uploadUrl: string): Promise<
   const current = await readUploadUrls();
   if (current[fileId] === uploadUrl) return;
   current[fileId] = uploadUrl;
-  await mkdir(dirname(URL_PATH), { recursive: true });
-  await writeFile(URL_PATH, JSON.stringify(current));
+  await mkdir(dirname(URL_PATH), { recursive: true, mode: 0o700 });
+  await writeFile(URL_PATH, JSON.stringify(current), { mode: 0o600 });
 }
 
 export async function clearUploadUrls(fileIds: string[]): Promise<void> {
@@ -202,5 +202,5 @@ export async function clearUploadUrls(fileIds: string[]): Promise<void> {
       changed = true;
     }
   }
-  if (changed) await writeFile(URL_PATH, JSON.stringify(current));
+  if (changed) await writeFile(URL_PATH, JSON.stringify(current), { mode: 0o600 });
 }
