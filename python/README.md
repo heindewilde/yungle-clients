@@ -1,7 +1,7 @@
 # yungle
 
-Python client for [Yungle](https://yungle.co/developers?ref=pypi), private, EU-hosted file
-transfer. Send files of any size as an expiring link, build collections for clients, keep
+Python client for [Yungle](https://yungle.co/developers?ref=pypi): private, EU-hosted file
+transfer, a WeTransfer alternative with an API. Send files of any size as an expiring link, build collections for clients, keep
 contacts in sync.
 
 ```bash
@@ -30,5 +30,14 @@ collections on a paid one. The first 10 GB of API uploads each month are free.
 - **Errors** raise `YungleError`; branch on `err.code`.
 - **Uploads** go through `upload_file(tus_endpoint, target, path)`, a small tus client that
   resumes from the server's last committed part.
+
+**Webhooks.** Check a delivery against the raw request body before trusting it:
+
+```python
+from yungle import verify_webhook
+
+if not verify_webhook(request.body, request.headers["Yungle-Signature"], secret):
+    return HttpResponse(status=400)
+```
 
 Source and issues: <https://github.com/heindewilde/yungle-clients>. MIT.
