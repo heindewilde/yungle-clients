@@ -38,7 +38,7 @@ sign-in code can't be used to mail strangers.
 | | Install | What it's for |
 |---|---|---|
 | **[CLI](apps/cli)** | `npm i -g yungle-cli`<br>`brew install heindewilde/yungle/yungle` | Send, receive and sync files from a terminal or CI. Resumes after a dropped connection or a closed lid |
-| **[MCP server](packages/mcp-server)** | `https://yungle.co/mcp` | Connect Claude, Cursor or any MCP client with one sign-in: ask what arrived, share files, approve every send |
+| **[MCP server](packages/mcp-server)** | [In Claude's directory](https://claude.ai/directory/yungle)<br>`https://yungle.co/mcp` | Connect Claude, Cursor or any MCP client with one sign-in: ask what arrived, share files, approve every send |
 | **[TypeScript SDK](packages/api-client)** | `npm i yungle-client` | The whole API, typed and dependency-free. Node, Bun, Deno, edge runtimes |
 | **[Python SDK](python)** | `pip install yungle` | The API from Python, with a one-call `send()` that handles the upload |
 | **[GitHub Action](https://github.com/heindewilde/yungle-send-action)** | `uses: heindewilde/yungle-send-action@v1` | Send build artefacts to a client from CI and get the link back as an output |
@@ -74,7 +74,9 @@ Full reference: [apps/cli](apps/cli) · [yungle.co/developers/cli](https://yungl
 
 ## Connect your AI assistant
 
-Add Yungle as a remote MCP server and sign in once. No key to copy.
+**In Claude:** [add Yungle from Claude's connector directory](https://claude.ai/directory/yungle) and sign in.
+
+**Anywhere else** (Cursor, VS Code, any MCP client): add Yungle as a remote MCP server and sign in once. No key to copy.
 
 ```
 https://yungle.co/mcp

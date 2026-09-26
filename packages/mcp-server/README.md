@@ -6,8 +6,9 @@ any MCP client with one sign-in: ask what arrived, share files, and approve ever
 
 ## Connect in one click (recommended)
 
-Yungle runs this server for you. Add it as a remote MCP server (in Claude: *Settings →
-Connectors → Add custom connector*; in Cursor: *MCP → Add server*) and sign in when asked:
+Yungle runs this server for you. **In Claude**, add it from the connector directory:
+[claude.ai/directory/yungle](https://claude.ai/directory/yungle). **Elsewhere** (Cursor: *MCP → Add
+server*, and any other MCP client), add it as a remote server and sign in when asked:
 
 ```
 https://yungle.co/mcp
