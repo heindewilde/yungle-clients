@@ -31,6 +31,7 @@ import {
   type ClientId,
   type McpClient,
 } from './mcp-install';
+import { describeEvent, ensureListenEndpoint, cursorAtNow, signForForward } from './listen';
 import { uploadAll } from './upload';
 
 /**
@@ -68,6 +69,9 @@ export const HELP = `yungle — send and sync files with Yungle
     --folder <id>         target folder
   yungle ls transfers|collections|contacts
   yungle rm transfer <id>                 revoke a transfer
+  yungle webhooks ls                      list webhook endpoints
+  yungle webhooks listen                  print events as they happen
+    --forward-to <url>    also POST each one, signed, to a local server
   yungle mcp install                      let an AI assistant read your Yungle
     --client <id>         claude-desktop | claude-code | cursor | windsurf
     --dry-run             show what would change, write nothing
@@ -118,6 +122,8 @@ export async function main(argv: string[]): Promise<number> {
         return await remove(positionals, flags, json);
       case 'mcp':
         return await mcp(positionals, flags, json);
+      case 'webhooks':
+        return await webhooks(positionals, flags, json);
       default:
         process.stderr.write(`Unknown command: ${command}\n\n${HELP}\n`);
         return 2;
@@ -615,6 +621,62 @@ function fail(err: unknown, json: boolean): number {
   if (json) process.stdout.write(`${JSON.stringify({ error: { code, message } }, null, 2)}\n`);
   else process.stderr.write(`${message}\n`);
   return 1;
+}
+
+// ── yungle webhooks ─────────────────────────────────────────────────────────
+
+async function webhooks(
+  positionals: string[],
+  flags: Record<string, string | boolean>,
+  json: boolean,
+): Promise<number> {
+  const api = client(flags);
+  const sub = positionals[0] ?? 'ls';
+  if (sub === 'ls') {
+    const { webhooks } = await api.listWebhooks();
+    const rows = webhooks.map(
+      (w) => `${pad(w.id, 28)}${pad(w.enabled ? 'active' : 'paused', 8)}${w.url ?? '(pull)'}  ${w.events.join(',')}`,
+    );
+    return out(json, { webhooks }, rows.length ? rows.join('\n') : 'No webhook endpoints.');
+  }
+  if (sub !== 'listen') {
+    process.stderr.write('Usage: yungle webhooks ls | listen [--forward-to <url>]\n');
+    return 2;
+  }
+
+  const forwardTo = stringFlag(flags['forward-to']);
+  const { id, secret } = await ensureListenEndpoint(api);
+  let cursor = await cursorAtNow(api, id);
+  process.stderr.write(
+    `Listening for events${forwardTo ? `, forwarding to ${forwardTo}` : ''}. Ctrl-C to stop.\n` +
+      (forwardTo ? `Signing secret for this session: ${secret}\n` : ''),
+  );
+
+  for (;;) {
+    const page = await api.listWebhookEvents(id, { limit: 100, cursor });
+    for (const { deliveryId, ...event } of page.events) {
+      const body = JSON.stringify(event);
+      if (json) process.stdout.write(`${body}\n`);
+      else process.stdout.write(`${event.createdAt.slice(11, 19)}  ${pad(event.type, 26)}${describeEvent(event)}\n`);
+      if (forwardTo) {
+        const res = await fetch(forwardTo, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': USER_AGENT,
+            'Yungle-Event-Id': event.id,
+            'Yungle-Event-Type': event.type,
+            'Yungle-Delivery-Id': deliveryId,
+            'Yungle-Signature': signForForward(secret, body),
+          },
+          body,
+        }).catch((err: Error) => ({ ok: false, status: err.message }) as const);
+        if (!json) process.stderr.write(`          → ${forwardTo} ${'status' in res ? res.status : ''}\n`);
+      }
+    }
+    cursor = page.nextCursor ?? cursor;
+    if (!page.hasMore) await new Promise((r) => setTimeout(r, 2000));
+  }
 }
 
 // ── yungle mcp ──────────────────────────────────────────────────────────────

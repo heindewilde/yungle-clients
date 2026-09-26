@@ -14,6 +14,10 @@ import type {
   TransferFile,
   TransferSummary,
   UploadTargets,
+  WebhookDelivery,
+  WebhookEndpoint,
+  WebhookEvent,
+  WebhookEventType,
 } from './types';
 
 export * from './types';
@@ -293,6 +297,63 @@ export class YungleClient {
     return this.request('DELETE', `/collections/${enc(id)}/guests/${enc(guestId)}`);
   }
 
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+
+  listWebhooks(): Promise<{ webhooks: WebhookEndpoint[] }> {
+    return this.request('GET', '/webhooks');
+  }
+
+  /** `url: null` makes a pull endpoint. The `secret` is returned here only. */
+  createWebhook(input: {
+    url: string | null;
+    events: WebhookEventType[];
+    description?: string;
+  }): Promise<{ webhook: WebhookEndpoint; secret: string }> {
+    return this.request('POST', '/webhooks', input);
+  }
+
+  getWebhook(id: string): Promise<{ webhook: WebhookEndpoint }> {
+    return this.request('GET', `/webhooks/${enc(id)}`);
+  }
+
+  updateWebhook(
+    id: string,
+    input: { url?: string | null; events?: WebhookEventType[]; description?: string | null; enabled?: boolean },
+  ): Promise<{ webhook: WebhookEndpoint }> {
+    return this.request('PATCH', `/webhooks/${enc(id)}`, input);
+  }
+
+  deleteWebhook(id: string): Promise<{ deleted: boolean }> {
+    return this.request('DELETE', `/webhooks/${enc(id)}`);
+  }
+
+  rotateWebhookSecret(id: string): Promise<{ secret: string }> {
+    return this.request('POST', `/webhooks/${enc(id)}/rotate-secret`);
+  }
+
+  testWebhook(id: string): Promise<{ deliveryId: string }> {
+    return this.request('POST', `/webhooks/${enc(id)}/test`);
+  }
+
+  listWebhookDeliveries(id: string): Promise<{ deliveries: WebhookDelivery[] }> {
+    return this.request('GET', `/webhooks/${enc(id)}/deliveries`);
+  }
+
+  retryWebhookDelivery(id: string, deliveryId: string): Promise<{ queued: boolean }> {
+    return this.request('POST', `/webhooks/${enc(id)}/deliveries/${enc(deliveryId)}/retry`);
+  }
+
+  /**
+   * An endpoint's events, oldest first, after `cursor`. `nextCursor` comes back
+   * even when nothing is new, so keep the latest and poll with it.
+   */
+  listWebhookEvents(
+    id: string,
+    page: PageOptions = {},
+  ): Promise<{ events: (WebhookEvent & { deliveryId: string })[]; nextCursor: string | null; hasMore: boolean }> {
+    return this.request('GET', `/webhooks/${enc(id)}/events${pageQuery(page)}`);
+  }
+
   // ── Contacts ──────────────────────────────────────────────────────────────
 
   listContacts(): Promise<{ contacts: Contact[] }> {
@@ -401,4 +462,35 @@ function backoffMs(attempt: number, error: YungleApiError): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Check a webhook's `Yungle-Signature` header against the RAW request body.
+ *
+ * WebCrypto rather than `node:crypto`, so it runs wherever this client does:
+ * Node, Bun, Deno and edge runtimes. Rejects a timestamp more than
+ * `toleranceSeconds` away, which is what stops a captured request being replayed.
+ */
+export async function verifyWebhook(
+  rawBody: string,
+  signatureHeader: string,
+  secret: string,
+  { toleranceSeconds = 300, now = Date.now() }: { toleranceSeconds?: number; now?: number } = {},
+): Promise<boolean> {
+  const parts = Object.fromEntries(signatureHeader.split(',').map((p) => p.split('=') as [string, string]));
+  const t = Number(parts.t);
+  if (!Number.isInteger(t) || Math.abs(now / 1000 - t) > toleranceSeconds || !parts.v1) return false;
+  const key = await globalThis.crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const mac = new Uint8Array(await globalThis.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${t}.${rawBody}`)));
+  const expected = [...mac].map((b) => b.toString(16).padStart(2, '0')).join('');
+  if (expected.length !== parts.v1.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ parts.v1.charCodeAt(i);
+  return diff === 0;
 }

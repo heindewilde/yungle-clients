@@ -186,3 +186,18 @@ test('an older server that sends no nextCursor ends the walk after one page', as
   assert.deepEqual(ids, ['a']);
   assert.equal(calls.length, 1);
 });
+
+test('verifyWebhook accepts a genuine signature and rejects tampering, the wrong secret and staleness', async () => {
+  const { createHmac } = await import('node:crypto');
+  const { verifyWebhook } = await import('./index');
+  const secret = 'whsec_test';
+  const body = '{"id":"evt_1","type":"transfer.ready"}';
+  const t = 1_700_000_000;
+  const header = `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${body}`).digest('hex')}`;
+  const at = { now: (t + 5) * 1000 };
+  assert.equal(await verifyWebhook(body, header, secret, at), true);
+  assert.equal(await verifyWebhook(body + ' ', header, secret, at), false);
+  assert.equal(await verifyWebhook(body, header, 'whsec_other', at), false);
+  assert.equal(await verifyWebhook(body, header, secret, { now: (t + 400) * 1000 }), false);
+  assert.equal(await verifyWebhook(body, 'garbage', secret, at), false);
+});

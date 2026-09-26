@@ -214,6 +214,43 @@ class Yungle:
     def remove_guest(self, id: str, guest_id: str) -> dict[str, Any]:
         return self._request("DELETE", f"/collections/{_enc(id)}/guests/{_enc(guest_id)}")
 
+    # ── Webhooks ──────────────────────────────────────────────────────────────
+
+    def list_webhooks(self) -> dict[str, Any]:
+        return self._request("GET", "/webhooks")
+
+    def create_webhook(
+        self, url: Optional[str], events: Sequence[str], *, description: Optional[str] = None
+    ) -> dict[str, Any]:
+        """``url=None`` makes a pull endpoint. The ``secret`` is in this response only."""
+        return self._request("POST", "/webhooks", json={"url": url, "events": list(events), **_drop_none({"description": description})})
+
+    def get_webhook(self, id: str) -> dict[str, Any]:
+        return self._request("GET", f"/webhooks/{_enc(id)}")
+
+    def update_webhook(self, id: str, **fields: Any) -> dict[str, Any]:
+        """Fields: url, events, description, enabled."""
+        return self._request("PATCH", f"/webhooks/{_enc(id)}", json=fields)
+
+    def delete_webhook(self, id: str) -> dict[str, Any]:
+        return self._request("DELETE", f"/webhooks/{_enc(id)}")
+
+    def rotate_webhook_secret(self, id: str) -> dict[str, Any]:
+        return self._request("POST", f"/webhooks/{_enc(id)}/rotate-secret")
+
+    def test_webhook(self, id: str) -> dict[str, Any]:
+        return self._request("POST", f"/webhooks/{_enc(id)}/test")
+
+    def list_webhook_deliveries(self, id: str) -> dict[str, Any]:
+        return self._request("GET", f"/webhooks/{_enc(id)}/deliveries")
+
+    def retry_webhook_delivery(self, id: str, delivery_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/webhooks/{_enc(id)}/deliveries/{_enc(delivery_id)}/retry")
+
+    def list_webhook_events(self, id: str, *, cursor: Optional[str] = None, limit: Optional[int] = None) -> dict[str, Any]:
+        """Oldest first after ``cursor``. ``nextCursor`` is returned even with nothing new: keep it."""
+        return self._request("GET", f"/webhooks/{_enc(id)}/events", params=_page(limit, cursor))
+
     # ── Contacts ──────────────────────────────────────────────────────────────
 
     def list_contacts(self) -> dict[str, Any]:

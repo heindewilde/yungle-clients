@@ -122,3 +122,30 @@ def test_upload_continues_from_the_offset_the_server_returns(tmp_path):
     assert url == "http://x/files/u1"
     assert bytes(received) == data
     assert patches == [0, len(data) // 2]
+
+
+def test_verify_webhook():
+    import hashlib
+    import hmac as _hmac
+
+    from yungle import verify_webhook
+
+    body = b'{"id":"evt_1"}'
+    t = 1_700_000_000
+    header = f"t={t},v1=" + _hmac.new(b"whsec_s", f"{t}.".encode() + body, hashlib.sha256).hexdigest()
+    assert verify_webhook(body, header, "whsec_s", now=t + 5)
+    assert not verify_webhook(body + b" ", header, "whsec_s", now=t + 5)
+    assert not verify_webhook(body, header, "whsec_other", now=t + 5)
+    assert not verify_webhook(body, header, "whsec_s", now=t + 400)
+    assert not verify_webhook(body, "garbage", "whsec_s", now=t)
+
+
+def test_create_pull_webhook_sends_null_url():
+    bodies = []
+
+    def handler(req):
+        bodies.append(json.loads(req.content))
+        return httpx.Response(201, json={"webhook": {}, "secret": "whsec_x"})
+
+    client_with(handler).create_webhook(None, ["transfer.ready"])
+    assert bodies[0] == {"url": None, "events": ["transfer.ready"]}

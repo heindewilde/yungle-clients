@@ -40,6 +40,7 @@ const VALUE_FLAGS = new Set([
   // `--client <id>`, so the command line was correct and the parser was not.
   // `helpFlagsAreParsed` in args.test.ts now derives this from HELP.
   'client',
+  'forward-to',
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {
