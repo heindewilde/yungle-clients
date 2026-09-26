@@ -7,7 +7,10 @@ import { accentErr, e, isTTY, sym } from './ui';
  * `yungle send x | pbcopy` copies the link rather than a paragraph.
  */
 export function out(json: boolean, data: unknown, pretty: string, plain: string = pretty, code = 0): number {
-  process.stdout.write(json ? `${JSON.stringify(data, null, 2)}\n` : `${isTTY ? pretty : plain}\n`);
+  // At a terminal every result starts after a blank line, like the progress
+  // headings do, so a command's output is separate from the prompt above it.
+  const human = isTTY ? `${pretty.startsWith('\n') ? '' : '\n'}${pretty}\n` : `${plain}\n`;
+  process.stdout.write(json ? `${JSON.stringify(data, null, 2)}\n` : human);
   return code;
 }
 

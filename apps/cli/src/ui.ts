@@ -184,5 +184,5 @@ export function note(text: string): void {
 }
 
 export function heading(text: string): void {
-  process.stderr.write(`\n  ${text}\n\n`);
+  process.stderr.write(`\n  ${text}\n`);
 }

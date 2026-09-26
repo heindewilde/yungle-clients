@@ -1,4 +1,4 @@
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { YungleClient, type Me, type TransferSummary } from 'yungle-client';
 import { listFlag, numberFlag, parseArgs, stringFlag } from './args';
 import { completionScript } from './completion';
@@ -292,7 +292,7 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
         ),
       ]),
       '',
-      next(`yungle status ${t.id}`, 'see who downloaded'),
+      next(`yungle status ${t.id.slice(-8)}`, 'see who downloaded'),
     ].join('\n'),
     t.url,
   );
@@ -402,9 +402,15 @@ async function get(positionals: string[], flags: Flags, json: boolean): Promise<
   return out(
     json,
     { saved, message: manifest.message, expiresAt: manifest.expiresAt },
-    success(`Saved ${saved.length === 1 ? saved[0] : `${plural(saved.length, 'file')} to ${outDir}`}`, manifest.message ? [o.italic(`“${manifest.message}”`)] : []),
+    success(`Saved ${saved.length === 1 ? shown(saved[0]!) : `${plural(saved.length, 'file')} to ${shown(outDir)}`}`, manifest.message ? [o.italic(`“${manifest.message}”`)] : []),
     saved.join('\n'),
   );
+}
+
+/** A path as a person would type it: relative when it is under here. */
+function shown(path: string): string {
+  const rel = relative(process.cwd(), path);
+  return !rel ? '.' : rel.startsWith('..') || isAbsolute(rel) ? path : `./${rel}`;
 }
 
 // ── Looking things up ───────────────────────────────────────────────────────
@@ -442,7 +448,7 @@ async function status(positionals: string[], flags: Flags, json: boolean): Promi
   const lines = [
     `  ${o.bold(t.title ?? (files[0] ? `${files[0].name}${files.length > 1 ? ` + ${files.length - 1} more` : ''}` : 'Untitled transfer'))}   ${state}`,
     `  ${accentOut(t.url)}`,
-    `  ${o.dim(`${plural(files.length, 'file')} ${sym.dot} ${formatBytes(t.sizeBytes)} ${sym.dot} downloaded ${plural(receipts.totalDownloads, 'time')}`)}`,
+    `  ${o.dim(`${plural(files.length, 'file')} ${sym.dot} ${formatBytes(t.sizeBytes)} ${sym.dot} ${receipts.totalDownloads ? `downloaded ${plural(receipts.totalDownloads, 'time')}` : 'not downloaded yet'}`)}`,
   ];
   if (recipients.length) {
     lines.push('', table(
