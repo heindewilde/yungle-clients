@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { YungleApiError, YungleClient } from 'yungle-client';
 import { z } from 'zod';
-import { stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { UNTRUSTED_NOTE, wrapUntrusted } from './untrusted';
 import { uploadBytes, uploadPath } from './upload';
@@ -303,9 +303,14 @@ export function createServer(
         },
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
-      async ({ paths, title, expiresInDays }, extra) => {
-        const hidden = paths.filter((p) => p.split(/[\\/]/).some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..'));
-        if (hidden.length) return fail(`Refused: ${hidden.join(', ')} is hidden. Share it from the dashboard if you really mean to.`);
+      async ({ paths: asked, title, expiresInDays }, extra) => {
+        const isHidden = (p: string) => p.split(/[\\/]/).some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..');
+        const early = asked.filter(isHidden);
+        if (early.length) return fail(`Refused: ${early.join(', ')} is hidden. Share it from the dashboard if you really mean to.`);
+        // Checked again on the real path: a harmless-looking name can be a symlink to ~/.ssh.
+        const paths = await Promise.all(asked.map((p) => realpath(p)));
+        const hidden = paths.filter(isHidden);
+        if (hidden.length) return fail(`Refused: ${hidden.join(', ')} is hidden (reached through a link). Share it from the dashboard if you really mean to.`);
         const stats = await Promise.all(paths.map((p) => stat(p)));
         if (stats.some((s) => !s.isFile())) return fail('Every path must be a file (not a folder).');
         const agreed = await confirm(
@@ -313,7 +318,17 @@ export function createServer(
           `Share ${paths.length === 1 ? paths[0] : `${paths.length} files`} as a Yungle link? Anyone with the link can download ${paths.length === 1 ? 'it' : 'them'} until it expires.`,
           extra,
         );
-        if (agreed === 'declined') return ok({ shared: false, reason: 'The user declined.' });
+        // Unlike before the 2026-09 review, "cannot ask" is a no here too: a
+        // public link to a local file is the one thing this server can leak.
+        if (agreed !== 'confirmed') {
+          return ok({
+            shared: false,
+            reason:
+              agreed === 'unsupported'
+                ? 'This assistant cannot ask the user to confirm, so no local file is shared from here. Use create_share_link for content you have, or ask the user to run `yungle send`.'
+                : 'The user declined.',
+          });
+        }
         const draft = await client.createTransfer({
           files: paths.map((p, i) => ({ name: basename(p), size: stats[i]!.size })),
           title,

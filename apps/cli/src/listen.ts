@@ -46,6 +46,13 @@ export async function ensureListenEndpoint(api: YungleClient): Promise<{ id: str
       });
       return { id: webhook.id, secret };
     }
+    if (err instanceof YungleApiError && err.code === 'insufficient_scope') {
+      throw new Error(
+        'This session cannot add webhook endpoints: `yungle login` never grants that, so a phished ' +
+          'code cannot wire your account to someone else’s server. Use an API key with webhooks:write ' +
+          '(yungle auth login), or add a pull endpoint in Settings → Webhooks and listen with a key.',
+      );
+    }
     if (err instanceof YungleApiError && err.code === 'upgrade_required') {
       throw new Error(
         'The free plan includes one webhook endpoint and this workspace already has one. ' +

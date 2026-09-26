@@ -22,7 +22,8 @@ export interface DeviceStart {
   device_code: string;
   user_code: string;
   verification_uri: string;
-  verification_uri_complete: string;
+  /** Not sent by Yungle (a pre-filled link is what a phishing mail sends); tolerated if present. */
+  verification_uri_complete?: string;
   expires_in: number;
   interval: number;
 }
@@ -67,8 +68,8 @@ export async function deviceLogin(baseUrl: string | undefined, opts: { openBrows
   if (!start.ok) throw new Error(`Could not start sign-in (HTTP ${start.status}).`);
   const d = (await start.json()) as DeviceStart;
 
-  process.stderr.write(`\nOpen ${d.verification_uri_complete}\nand confirm the code ${d.user_code}\n\n`);
-  if (opts.openBrowser) openBrowser(d.verification_uri_complete);
+  process.stderr.write(`\nOpen ${d.verification_uri}\nand type the code  ${d.user_code}\n\n`);
+  if (opts.openBrowser) openBrowser(d.verification_uri);
 
   let interval = d.interval;
   const deadline = Date.now() + d.expires_in * 1000;

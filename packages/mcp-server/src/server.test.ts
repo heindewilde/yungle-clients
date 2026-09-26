@@ -244,3 +244,32 @@ test('every tool description says what it ANSWERS, not just what it returns', ()
   assert.deepEqual(missing, [], 'these read tools do not lead with the questions they answer');
 });
 
+
+test('share_local_files needs a yes: a client that cannot ask shares nothing', async () => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-'));
+  const file = join(dir, 'report.txt');
+  await writeFile(file, 'x');
+  const client = await connect({ canWrite: true, canEmail: false, local: true });
+  const r = await client.callTool({ name: 'share_local_files', arguments: { paths: [file] } });
+  assert.match(text(r), /"shared": false/);
+  assert.deepEqual(finalized, []);
+  await client.close();
+});
+
+test('a symlink to a hidden path is refused by where it leads', async () => {
+  const { mkdtemp, mkdir, symlink, writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-'));
+  await mkdir(join(dir, '.ssh'));
+  await writeFile(join(dir, '.ssh', 'id_ed25519'), 'secret');
+  await symlink(join(dir, '.ssh', 'id_ed25519'), join(dir, 'notes.txt'));
+  const client = await connect({ canWrite: true, canEmail: false, local: true }, () => ({ action: 'accept', content: { confirm: true } }));
+  const r = await client.callTool({ name: 'share_local_files', arguments: { paths: [join(dir, 'notes.txt')] } });
+  assert.equal((r as { isError?: boolean }).isError, true);
+  assert.match(text(r), /hidden/);
+  await client.close();
+});
