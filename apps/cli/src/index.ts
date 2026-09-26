@@ -215,6 +215,7 @@ async function whoami(flags: Flags, json: boolean): Promise<number> {
       `  ${o.dim('Storage')}   ${formatBytes(me.plan.usedBytes)} of ${formatBytes(me.plan.quotaBytes)}`,
       `  ${o.dim('Signed in')} ${via} ${o.dim(`(${me.key.name})`)}`,
       `  ${o.dim('May')}       ${me.key.scopes.join(', ')}`,
+      ...(me.key.canEmail === false ? [`  ${o.dim('Email')}     ${o.dim('no, links only')}  ${o.dim('(yungle login --key to email recipients)')}`] : []),
     ].join('\n'),
     me.workspace.email ?? me.workspace.id,
   );
@@ -237,6 +238,16 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
   }
 
   const api = client(flags);
+  // A browser sign-in may create links but never email anyone (a phished
+  // device code must not be able to mail strangers). Find that out before a
+  // byte moves, not after uploading 100 GB to a finalize that refuses.
+  if (recipients.length > 0 && (await api.me()).key.canEmail === false) {
+    const hint = 'yungle login --key   (an API key can email; or leave out --to)';
+    if (!interactive(flags)) throw new CliError('A browser sign-in can make links but cannot email people.', hint, 'insufficient_scope');
+    note('A browser sign-in can make links but cannot email people.');
+    if (!(await confirm('Send it as a link you share yourself?'))) throw new CliError('Cancelled; nothing was sent.', hint, 'cancelled', 130);
+    recipients = [];
+  }
   const files = await collectFiles(paths);
   if (files.length === 0) throw new CliError('Those paths contain no files (hidden files are skipped).', undefined, 'usage', 2);
   const total = files.reduce((n, f) => n + f.size, 0);
