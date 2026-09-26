@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yungle"
+version = "0.1.0"
+description = "Python client for the Yungle API: send large files as private, EU-hosted transfers, build collections, sync contacts."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "Yungle", email = "hello@yungle.co" }]
+dependencies = ["httpx>=0.25"]
+keywords = ["yungle", "file-transfer", "file-sharing", "send-large-files", "upload", "tus", "resumable", "webhooks", "sdk", "wetransfer-alternative", "gdpr", "eu"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Communications :: File Sharing",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://yungle.co/developers?ref=pypi"
+Documentation = "https://yungle.co/developers/reference?ref=pypi"
+Source = "https://github.com/heindewilde/yungle-clients"
+Issues = "https://github.com/heindewilde/yungle-clients/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yungle"]

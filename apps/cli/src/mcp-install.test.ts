@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mcpClients, mergeServerEntry, serverEntry, writeScopes } from './mcp-install';
+import { mcpClients, mergeServerEntry, serverEntry, unusableWriteScopes, writeScopes } from './mcp-install';
 
 /**
  * These tests exist because the thing being written to is SOMEONE ELSE'S CONFIG.
@@ -170,4 +170,9 @@ test('write scopes are identified for refusal', () => {
     writeScopes(['transfers:write', 'collections:write', 'contacts:read']).sort(),
     ['collections:write', 'transfers:write'],
   );
+});
+
+test('only transfers:write is ever usable by the MCP server', () => {
+  assert.deepEqual(unusableWriteScopes(['transfers:read', 'transfers:write']), []);
+  assert.deepEqual(unusableWriteScopes(['transfers:write', 'collections:write', 'webhooks:write']), ['collections:write', 'webhooks:write']);
 });

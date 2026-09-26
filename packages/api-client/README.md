@@ -13,7 +13,7 @@ import { YungleClient } from 'yungle-client';
 
 const yungle = new YungleClient({ apiKey: process.env.YUNGLE_API_KEY! });
 
-// Reading is free on any account.
+// Everything here works on the free plan.
 const { transfers } = await yungle.listTransfers();
 const { downloads } = await yungle.transferDownloads(transfers[0].id);
 
@@ -32,9 +32,11 @@ collections on a paid one. The first 10 GB of API uploads each month are free.
 
 - **Dependency-free**, built on `fetch`, so it runs unchanged on Node 22+, Bun,
   Deno and edge runtimes.
-- **Retries what is safe to retry** — throttles always, and 5xx only on
-  idempotent operations. `createTransfer` is never retried automatically,
-  because repeating it would make a second draft.
+- **Retries are safe.** Throttles are always retried; 5xx and dropped connections are retried
+  for GET, DELETE and POST. Every POST carries an `Idempotency-Key`, reused on each retry, so a
+  lost response to `createTransfer` gets the first draft back instead of making a second.
+- **Pages are walked for you.** Lists take `{ limit, cursor }` and return `nextCursor`;
+  `allTransfers()` and `allCollectionFiles(id)` are async iterators over everything.
 - **Does not upload bytes.** Endpoints that accept files return a tus endpoint
   and per-file tokens; streaming to those is the caller's job. Keeping the byte
   pipeline out is what lets this stay one small file. If you want that handled
@@ -54,6 +56,19 @@ try {
 }
 ```
 
+## Webhooks
+
+```ts
+import { verifyWebhook } from 'yungle-client';
+
+const { secret } = await yungle.createWebhook({ url: 'https://example.com/hooks/yungle', events: ['transfer.downloaded'] });
+// The secret is returned once. In your handler, with the RAW request body:
+if (!(await verifyWebhook(rawBody, req.headers['yungle-signature'], secret))) return res.status(400).end();
+```
+
+Signed with HMAC-SHA256 over a timestamp and the body; stale signatures (over 5 minutes) are
+refused. No public URL? Create the endpoint with `url: null` and poll `listWebhookEvents(id, { cursor })` instead.
+
 ## Not reachable
 
 Your vault and end-to-end encrypted transfers, because their keys are derived in
@@ -63,7 +78,7 @@ the client and never sent to Yungle. See
 ## Related
 
 - [`yungle-cli`](https://www.npmjs.com/package/yungle-cli) — resumable uploads from your terminal
-- [`yungle-mcp`](https://www.npmjs.com/package/yungle-mcp) — read your transfers from an AI assistant
-- [Full API reference](https://yungle.co/developers) · [OpenAPI spec](https://yungle.co/api/v1/openapi.json)
+- [`yungle-mcp`](https://www.npmjs.com/package/yungle-mcp) — connect Claude or Cursor to Yungle
+- [API reference](https://yungle.co/developers/reference?ref=npm) · [OpenAPI spec](https://yungle.co/api/v1/openapi.json)
 
 MIT

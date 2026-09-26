@@ -1,6 +1,13 @@
 // The SDK against the live API: every operation in the published OpenAPI spec
-// must have a call in packages/api-client, and every call must exist in the
-// spec. Static on purpose — it reads the client source, so it needs no key.
+// must have a call in packages/api-client. Static on purpose — it reads the
+// client source, so it needs no key.
+//
+// The two directions are not equal. A live operation the client lacks is a
+// failure: users cannot reach it. A client call the live API lacks is only a
+// warning, because the clients ship ahead of the server — a call for an
+// endpoint that is built but not yet deployed is the normal state between the
+// two releases. `--strict` (or CONTRACT_STRICT=1) fails on those as well, for
+// checking against a server that should already have everything.
 import { readFileSync } from 'node:fs';
 
 const SPEC = process.env.YUNGLE_OPENAPI_URL ?? 'https://yungle.co/api/v1/openapi.json';
@@ -29,8 +36,13 @@ for (const m of src.matchAll(/this\.request\(\s*'([A-Z]+)',\s*[`']([^`'?$]*(?:\$
 }
 
 const missing = [...inSpec].filter((op) => !inClient.has(op)).sort();
-const stale = [...inClient].filter((op) => !inSpec.has(op)).sort();
+const ahead = [...inClient].filter((op) => !inSpec.has(op)).sort();
+const strict = process.argv.includes('--strict') || process.env.CONTRACT_STRICT === '1';
 for (const op of missing) console.error(`✗ in the API, not in the client: ${op}`);
-for (const op of stale) console.error(`✗ in the client, not in the API: ${op}`);
-if (missing.length || stale.length) process.exit(1);
-console.log(`✓ ${inSpec.size} operations, client and API agree (${SPEC})`);
+for (const op of ahead) console.error(`${strict ? '✗' : '!'} in the client, not yet in the API: ${op}`);
+if (missing.length || (strict && ahead.length)) process.exit(1);
+console.log(
+  `✓ all ${inSpec.size} live operations are in the client` +
+    (ahead.length ? `; ${ahead.length} more await a server release` : '') +
+    ` (${SPEC})`,
+);

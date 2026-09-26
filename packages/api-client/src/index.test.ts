@@ -115,3 +115,89 @@ test('path segments are encoded, so an id cannot escape its position in the URL'
   const { url } = call();
   assert.ok(!url.includes('../'), `a traversal survived into the URL: ${url}`);
 });
+
+/** A fetch that answers from a queue of replies, one per call. */
+function sequence(replies: Array<{ status: number; body: unknown }>) {
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const fn = (async (url: string | URL | Request, init: RequestInit = {}) => {
+    calls.push({ url: String(url), init });
+    const r = replies[Math.min(calls.length - 1, replies.length - 1)]!;
+    return new Response(JSON.stringify(r.body), { status: r.status, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof globalThis.fetch;
+  return { fn, calls };
+}
+
+test('a POST carries one Idempotency-Key, reused on its retry, so a 5xx is retried safely', async () => {
+  const { fn, calls } = sequence([
+    { status: 503, body: { error: { code: 'internal_error', message: 'x' } } },
+    { status: 201, body: { contact: { id: 'c1' } } },
+  ]);
+  const client = new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn });
+  // Backoff is real time; one short retry keeps this test quick.
+  await client.createContact({ email: 'a@example.com' });
+  assert.equal(calls.length, 2, 'the POST was retried');
+  const keys = calls.map((c) => new Headers(c.init.headers).get('idempotency-key'));
+  assert.ok(keys[0] && /^[0-9a-f-]{36}$/.test(keys[0]), 'a UUID key was sent');
+  assert.equal(keys[1], keys[0], 'the retry reused it');
+});
+
+test('two separate POSTs get different keys', async () => {
+  const { fn, calls } = sequence([{ status: 201, body: { contact: { id: 'c1' } } }]);
+  const client = new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn });
+  await client.createContact({ email: 'a@example.com' });
+  await client.createContact({ email: 'b@example.com' });
+  const [a, b] = calls.map((c) => new Headers(c.init.headers).get('idempotency-key'));
+  assert.notEqual(a, b);
+});
+
+test('a GET carries no Idempotency-Key', async () => {
+  const { fn, call } = stubFetch({ body: { transfers: [], nextCursor: null } });
+  await new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn }).listTransfers();
+  assert.equal(new Headers(call().init.headers).get('idempotency-key'), null);
+});
+
+test('page options become query parameters, and none means none', async () => {
+  const { fn, calls } = sequence([{ status: 200, body: { transfers: [], files: [], nextCursor: null } }]);
+  const client = new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn });
+  await client.listTransfers();
+  await client.listTransfers({ limit: 50, cursor: 'v1.abc' });
+  await client.listCollectionFiles('col', 'root', { limit: 10 });
+  assert.equal(calls[0]!.url, 'http://x/v1/transfers');
+  assert.equal(calls[1]!.url, 'http://x/v1/transfers?limit=50&cursor=v1.abc');
+  assert.equal(calls[2]!.url, 'http://x/v1/collections/col/files?folderId=root&limit=10');
+});
+
+test('allTransfers walks every page and stops at a null cursor', async () => {
+  const { fn, calls } = sequence([
+    { status: 200, body: { transfers: [{ id: 'a' }, { id: 'b' }], nextCursor: 'v1.b' } },
+    { status: 200, body: { transfers: [{ id: 'c' }], nextCursor: null } },
+  ]);
+  const ids: string[] = [];
+  for await (const t of new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn }).allTransfers(2)) ids.push(t.id);
+  assert.deepEqual(ids, ['a', 'b', 'c']);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1]!.url, /cursor=v1\.b/);
+});
+
+test('an older server that sends no nextCursor ends the walk after one page', async () => {
+  const { fn, calls } = sequence([{ status: 200, body: { transfers: [{ id: 'a' }] } }]);
+  const ids: string[] = [];
+  for await (const t of new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn }).allTransfers()) ids.push(t.id);
+  assert.deepEqual(ids, ['a']);
+  assert.equal(calls.length, 1);
+});
+
+test('verifyWebhook accepts a genuine signature and rejects tampering, the wrong secret and staleness', async () => {
+  const { createHmac } = await import('node:crypto');
+  const { verifyWebhook } = await import('./index');
+  const secret = 'whsec_test';
+  const body = '{"id":"evt_1","type":"transfer.ready"}';
+  const t = 1_700_000_000;
+  const header = `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${body}`).digest('hex')}`;
+  const at = { now: (t + 5) * 1000 };
+  assert.equal(await verifyWebhook(body, header, secret, at), true);
+  assert.equal(await verifyWebhook(body + ' ', header, secret, at), false);
+  assert.equal(await verifyWebhook(body, header, 'whsec_other', at), false);
+  assert.equal(await verifyWebhook(body, header, secret, { now: (t + 400) * 1000 }), false);
+  assert.equal(await verifyWebhook(body, 'garbage', secret, at), false);
+});

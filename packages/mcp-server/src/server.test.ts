@@ -3,7 +3,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { YungleClient } from 'yungle-client';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createServer } from './server';
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { createServer, type ServerOptions } from './server';
 import { UNTRUSTED_NOTE, wrapUntrusted } from './untrusted';
 
 /**
@@ -15,6 +16,9 @@ import { UNTRUSTED_NOTE, wrapUntrusted } from './untrusted';
  * data.
  */
 
+/** Every finalize the stub saw — the call that makes a link live and mails recipients. */
+let finalized: { id: string; input: unknown }[] = [];
+
 /** A stand-in that records calls and returns plausible shapes. */
 function stubClient(): YungleClient {
   const stub = {
@@ -24,7 +28,7 @@ function stubClient(): YungleClient {
       key: { id: 'k', name: 'test', scopes: ['transfers:read'] },
     }),
     listTransfers: async () => ({ transfers: [] }),
-    getTransfer: async () => ({ transfer: {}, files: [], recipients: [] }),
+    getTransfer: async (id: string) => ({ transfer: { id, url: 'https://yungle.test/t/abc' }, files: [], recipients: [] }),
     transferDownloads: async () => ({ downloads: [], recipients: [], totalDownloads: 0 }),
     listCollections: async () => ({ collections: [] }),
     getCollection: async () => ({ collection: {} }),
@@ -32,6 +36,10 @@ function stubClient(): YungleClient {
     listFolders: async () => ({ folders: [] }),
     listGuests: async () => ({ guests: [] }),
     listContacts: async () => ({ contacts: [] }),
+    finalizeTransfer: async (id: string, input: unknown) => {
+      finalized.push({ id, input });
+      return { transfer: { id, url: 'https://yungle.test/t/abc', expiresAt: '2026-01-01' }, notified: ['x@example.com'] };
+    },
     createTransfer: async () => ({
       transfer: { id: 't1', slug: 's', expiresAt: '2026-01-01T00:00:00.000Z', maxBytes: 1 },
       tusEndpoint: 'https://example.test/files',
@@ -41,37 +49,109 @@ function stubClient(): YungleClient {
   return stub as unknown as YungleClient;
 }
 
-async function connect(): Promise<Client> {
-  const server = createServer(stubClient());
+async function connect(
+  opts: ServerOptions = { canWrite: false, canEmail: false, local: false },
+  elicit?: (message: string) => { action: 'accept' | 'decline' | 'cancel'; content?: Record<string, unknown> },
+): Promise<Client> {
+  finalized = [];
+  const server = createServer(stubClient(), opts);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'test', version: '1.0.0' });
+  const client = new Client({ name: 'test', version: '1.0.0' }, elicit ? { capabilities: { elicitation: {} } } : {});
+  if (elicit) client.setRequestHandler(ElicitRequestSchema, async (req) => elicit(req.params.message));
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
   return client;
 }
 
-test('no tool can send, delete, revoke or invite', async () => {
+const text = (r: unknown) => ((r as { content: { text: string }[] }).content[0]!.text);
+
+test('no tool can ever delete, revoke, remove or invite, whatever the credential', async () => {
   /**
-   * The one assertion in this file that must never be relaxed.
-   *
-   * Sending mails strangers from Yungle's authenticated domain carrying
-   * caller-supplied text — the surface the security review closed when it was
-   * reachable without an account. A model can be steered by a filename in a
-   * collection it was asked to summarise, so the safety property here cannot be
-   * "it asks first"; MCP has no confirmation primitive and the host may offer
-   * none. It has to be that the capability is absent.
+   * The assertion in this file that must never be relaxed. Deleting and
+   * revoking destroy the user's data, and inviting grants a stranger access;
+   * a model can be steered by a filename into any of them.
    */
+  for (const opts of [
+    { canWrite: false, canEmail: false, local: false },
+    { canWrite: true, canEmail: true, local: true },
+  ]) {
+    const client = await connect(opts);
+    const { tools } = await client.listTools();
+    assert.deepEqual(tools.filter((t) => /delete|revoke|remove|invite/i.test(t.name)).map((t) => t.name), []);
+    await client.close();
+  }
+});
+
+test('a read-only credential gets read tools and a draft, nothing that shares or sends', async () => {
   const client = await connect();
   const { tools } = await client.listTools();
-  const dangerous = tools.filter((t) => /send|delete|revoke|remove|invite|finalize/i.test(t.name));
-  assert.deepEqual(dangerous.map((t) => t.name), []);
+  assert.deepEqual(tools.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name), ['create_transfer']);
   await client.close();
 });
 
-test('every tool but create_transfer is read-only', async () => {
-  const client = await connect();
-  const { tools } = await client.listTools();
-  const writes = tools.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name);
-  assert.deepEqual(writes, ['create_transfer']);
+test('sending exists only with email permission; sharing only with write', async () => {
+  const names = async (opts: ServerOptions) => {
+    const c = await connect(opts);
+    const n = (await c.listTools()).tools.map((t) => t.name);
+    await c.close();
+    return n;
+  };
+  const write = await names({ canWrite: true, canEmail: false, local: false });
+  assert.ok(write.includes('create_share_link'));
+  assert.ok(!write.includes('send_transfer'), 'no email permission, no send tool');
+  assert.ok(!write.includes('share_local_files'), 'the hosted server has no filesystem');
+  const all = await names({ canWrite: true, canEmail: true, local: true });
+  assert.ok(all.includes('send_transfer') && all.includes('share_local_files'));
+});
+
+test('send_transfer is marked destructive, so a host asks before running it', async () => {
+  const client = await connect({ canWrite: true, canEmail: true, local: false });
+  const tool = (await client.listTools()).tools.find((t) => t.name === 'send_transfer')!;
+  assert.equal(tool.annotations?.destructiveHint, true);
+  assert.equal(tool.annotations?.openWorldHint, true);
+  await client.close();
+});
+
+test('a client that cannot confirm gets the link, and nobody is emailed', async () => {
+  const client = await connect({ canWrite: true, canEmail: true, local: false });
+  const result = await client.callTool({ name: 'send_transfer', arguments: { transferId: 't1', recipients: ['a@example.com'] } });
+  assert.match(text(result), /"sent": false/);
+  assert.match(text(result), /yungle\.test\/t\/abc/);
+  assert.deepEqual(finalized, [], 'finalize must not be called');
+  await client.close();
+});
+
+test('the human sees the addresses and the note, and only a yes sends', async () => {
+  let asked = '';
+  const yes = await connect({ canWrite: true, canEmail: true, local: false }, (m) => {
+    asked = m;
+    return { action: 'accept', content: { confirm: true } };
+  });
+  await yes.callTool({ name: 'send_transfer', arguments: { transferId: 't1', recipients: ['a@example.com'], message: 'Hi' } });
+  assert.match(asked, /a@example\.com/);
+  assert.match(asked, /Hi/);
+  assert.deepEqual(finalized, [{ id: 't1', input: { recipients: ['a@example.com'], message: 'Hi' } }]);
+  await yes.close();
+
+  for (const answer of [
+    { action: 'decline' as const },
+    { action: 'accept' as const, content: { confirm: false } },
+    { action: 'cancel' as const },
+  ]) {
+    const no = await connect({ canWrite: true, canEmail: true, local: false }, () => answer);
+    const r = await no.callTool({ name: 'send_transfer', arguments: { transferId: 't1', recipients: ['a@example.com'] } });
+    assert.match(text(r), /"sent": false/);
+    assert.deepEqual(finalized, [], JSON.stringify(answer));
+    await no.close();
+  }
+});
+
+test('share_local_files refuses hidden paths before touching the disk', async () => {
+  const client = await connect({ canWrite: true, canEmail: false, local: true });
+  for (const p of ['/home/me/.ssh/id_ed25519', '/srv/app/.env', 'C:\\Users\\me\\.aws\\credentials']) {
+    const r = await client.callTool({ name: 'share_local_files', arguments: { paths: [p] } });
+    assert.equal((r as { isError?: boolean }).isError, true, p);
+    assert.match(text(r), /hidden/);
+  }
   await client.close();
 });
 
@@ -157,10 +237,39 @@ test('every tool description says what it ANSWERS, not just what it returns', ()
   );
 
   const missing = Object.entries(registered)
-    .filter(([name]) => name !== 'create_transfer')
+    .filter(([, t]) => !('annotations' in t) || (t as { annotations?: { readOnlyHint?: boolean } }).annotations?.readOnlyHint === true)
     .filter(([, t]) => !/Answers:/.test(t.description ?? ''))
     .map(([name]) => name);
 
   assert.deepEqual(missing, [], 'these read tools do not lead with the questions they answer');
 });
 
+
+test('share_local_files needs a yes: a client that cannot ask shares nothing', async () => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-'));
+  const file = join(dir, 'report.txt');
+  await writeFile(file, 'x');
+  const client = await connect({ canWrite: true, canEmail: false, local: true });
+  const r = await client.callTool({ name: 'share_local_files', arguments: { paths: [file] } });
+  assert.match(text(r), /"shared": false/);
+  assert.deepEqual(finalized, []);
+  await client.close();
+});
+
+test('a symlink to a hidden path is refused by where it leads', async () => {
+  const { mkdtemp, mkdir, symlink, writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-'));
+  await mkdir(join(dir, '.ssh'));
+  await writeFile(join(dir, '.ssh', 'id_ed25519'), 'secret');
+  await symlink(join(dir, '.ssh', 'id_ed25519'), join(dir, 'notes.txt'));
+  const client = await connect({ canWrite: true, canEmail: false, local: true }, () => ({ action: 'accept', content: { confirm: true } }));
+  const r = await client.callTool({ name: 'share_local_files', arguments: { paths: [join(dir, 'notes.txt')] } });
+  assert.equal((r as { isError?: boolean }).isError, true);
+  assert.match(text(r), /hidden/);
+  await client.close();
+});

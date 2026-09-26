@@ -40,7 +40,12 @@ const VALUE_FLAGS = new Set([
   // `--client <id>`, so the command line was correct and the parser was not.
   // `helpFlagsAreParsed` in args.test.ts now derives this from HELP.
   'client',
+  'forward-to',
+  'interval',
 ]);
+
+/** Value flags that may also stand alone, meaning "prompt for it". */
+const OPTIONAL_VALUE = new Set(['key']);
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const [command = 'help', ...rest] = argv;
@@ -67,6 +72,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
       if (VALUE_FLAGS.has(body)) {
         const value = rest[i + 1];
         if (value === undefined || value.startsWith('--')) {
+          // `yungle login --key` on its own means "ask me for it".
+          if (OPTIONAL_VALUE.has(body)) {
+            flags[body] = true;
+            continue;
+          }
           throw new Error(`--${body} needs a value.`);
         }
         flags[body] = value;

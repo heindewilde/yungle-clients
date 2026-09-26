@@ -39,6 +39,10 @@ export interface KeyInfo {
   id: string;
   name: string;
   scopes: string[];
+  /** Absent on servers before 2026-09-26. */
+  via?: 'key' | 'oauth';
+  /** Whether this credential may make Yungle email anyone. Absent on older servers. */
+  canEmail?: boolean;
 }
 
 export interface Me {
@@ -203,4 +207,48 @@ export interface ContactInput {
   email: string;
   phone?: string | null;
   type?: string | null;
+}
+
+// ── Webhooks ────────────────────────────────────────────────────────────────
+
+export type WebhookEventType =
+  | 'transfer.ready'
+  | 'transfer.downloaded'
+  | 'transfer.expiring'
+  | 'transfer.expired'
+  | 'collection.file_uploaded';
+
+export interface WebhookEndpoint {
+  id: string;
+  /** Null for a pull endpoint. */
+  url: string | null;
+  mode: 'push' | 'pull';
+  description: string | null;
+  events: WebhookEventType[];
+  enabled: boolean;
+  disabledReason: 'failing' | 'user' | null;
+  lastSuccessAt: Iso8601 | null;
+  lastFailureAt: Iso8601 | null;
+  createdAt: Iso8601;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  eventId: string;
+  type: WebhookEventType | 'webhook.test';
+  status: 'pending' | 'succeeded' | 'failed' | 'available';
+  attempts: number;
+  nextAttemptAt: Iso8601 | null;
+  lastStatusCode: number | null;
+  lastError: string | null;
+  deliveredAt: Iso8601 | null;
+  createdAt: Iso8601;
+}
+
+/** The JSON a push delivery sends, and what `/events` returns (plus `deliveryId`). */
+export interface WebhookEvent<T = Record<string, unknown>> {
+  id: string;
+  type: WebhookEventType | 'webhook.test';
+  createdAt: Iso8601;
+  data: T;
 }

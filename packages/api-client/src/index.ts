@@ -14,6 +14,10 @@ import type {
   TransferFile,
   TransferSummary,
   UploadTargets,
+  WebhookDelivery,
+  WebhookEndpoint,
+  WebhookEvent,
+  WebhookEventType,
 } from './types';
 
 export * from './types';
@@ -86,6 +90,21 @@ export interface ClientOptions {
 
 const DEFAULT_BASE = 'https://yungle.co/api/v1';
 
+export interface PageOptions {
+  /** Page size. The server's default applies when omitted. */
+  limit?: number;
+  /** The `nextCursor` from the previous page, unchanged. */
+  cursor?: string;
+}
+
+function pageQuery(page: PageOptions, extra: Record<string, string> = {}): string {
+  const params = new URLSearchParams(extra);
+  if (page.limit !== undefined) params.set('limit', String(page.limit));
+  if (page.cursor) params.set('cursor', page.cursor);
+  const q = params.toString();
+  return q ? `?${q}` : '';
+}
+
 // Replaced with the package version by the build; `dev` under tsx and in tests.
 declare const __YUNGLE_CLIENT_VERSION__: string | undefined;
 export const CLIENT_VERSION =
@@ -115,8 +134,23 @@ export class YungleClient {
 
   // ── Transfers ─────────────────────────────────────────────────────────────
 
-  listTransfers(): Promise<{ transfers: TransferSummary[] }> {
-    return this.request('GET', '/transfers');
+  /**
+   * One page of transfers, newest first — 100 by default, up to 500. Pass the
+   * returned `nextCursor` back as `cursor` for the next page; it is null on the
+   * last one. `allTransfers()` does the walking for you.
+   */
+  listTransfers(page: PageOptions = {}): Promise<{ transfers: TransferSummary[]; nextCursor: string | null }> {
+    return this.request('GET', `/transfers${pageQuery(page)}`);
+  }
+
+  /** Every transfer, newest first, fetched a page at a time as you iterate. */
+  async *allTransfers(pageSize = 500): AsyncGenerator<TransferSummary> {
+    let cursor: string | undefined;
+    do {
+      const page = await this.listTransfers({ limit: pageSize, cursor });
+      yield* page.transfers;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
   }
 
   /**
@@ -204,10 +238,28 @@ export class YungleClient {
     return this.request('DELETE', `/collections/${enc(id)}`);
   }
 
-  /** `folderId` omitted lists everything; `'root'` lists the top level only. */
-  listCollectionFiles(id: string, folderId?: string): Promise<{ files: CollectionFile[] }> {
-    const query = folderId ? `?folderId=${encodeURIComponent(folderId)}` : '';
+  /**
+   * `folderId` omitted lists everything; `'root'` lists the top level only.
+   * Without `page.limit` the whole collection comes back in one response; with
+   * it, follow `nextCursor` (or use `allCollectionFiles`).
+   */
+  listCollectionFiles(
+    id: string,
+    folderId?: string,
+    page: PageOptions = {},
+  ): Promise<{ files: CollectionFile[]; nextCursor: string | null }> {
+    const query = pageQuery(page, folderId ? { folderId } : {});
     return this.request('GET', `/collections/${enc(id)}/files${query}`);
+  }
+
+  /** Every file in a collection, oldest first, a page at a time. */
+  async *allCollectionFiles(id: string, folderId?: string, pageSize = 1000): AsyncGenerator<CollectionFile> {
+    let cursor: string | undefined;
+    do {
+      const page = await this.listCollectionFiles(id, folderId, { limit: pageSize, cursor });
+      yield* page.files;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
   }
 
   addCollectionFiles(
@@ -245,6 +297,63 @@ export class YungleClient {
     return this.request('DELETE', `/collections/${enc(id)}/guests/${enc(guestId)}`);
   }
 
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+
+  listWebhooks(): Promise<{ webhooks: WebhookEndpoint[] }> {
+    return this.request('GET', '/webhooks');
+  }
+
+  /** `url: null` makes a pull endpoint. The `secret` is returned here only. */
+  createWebhook(input: {
+    url: string | null;
+    events: WebhookEventType[];
+    description?: string;
+  }): Promise<{ webhook: WebhookEndpoint; secret: string }> {
+    return this.request('POST', '/webhooks', input);
+  }
+
+  getWebhook(id: string): Promise<{ webhook: WebhookEndpoint }> {
+    return this.request('GET', `/webhooks/${enc(id)}`);
+  }
+
+  updateWebhook(
+    id: string,
+    input: { url?: string | null; events?: WebhookEventType[]; description?: string | null; enabled?: boolean },
+  ): Promise<{ webhook: WebhookEndpoint }> {
+    return this.request('PATCH', `/webhooks/${enc(id)}`, input);
+  }
+
+  deleteWebhook(id: string): Promise<{ deleted: boolean }> {
+    return this.request('DELETE', `/webhooks/${enc(id)}`);
+  }
+
+  rotateWebhookSecret(id: string): Promise<{ secret: string }> {
+    return this.request('POST', `/webhooks/${enc(id)}/rotate-secret`);
+  }
+
+  testWebhook(id: string): Promise<{ deliveryId: string }> {
+    return this.request('POST', `/webhooks/${enc(id)}/test`);
+  }
+
+  listWebhookDeliveries(id: string): Promise<{ deliveries: WebhookDelivery[] }> {
+    return this.request('GET', `/webhooks/${enc(id)}/deliveries`);
+  }
+
+  retryWebhookDelivery(id: string, deliveryId: string): Promise<{ queued: boolean }> {
+    return this.request('POST', `/webhooks/${enc(id)}/deliveries/${enc(deliveryId)}/retry`);
+  }
+
+  /**
+   * An endpoint's events, oldest first, after `cursor`. `nextCursor` comes back
+   * even when nothing is new, so keep the latest and poll with it.
+   */
+  listWebhookEvents(
+    id: string,
+    page: PageOptions = {},
+  ): Promise<{ events: (WebhookEvent & { deliveryId: string })[]; nextCursor: string | null; hasMore: boolean }> {
+    return this.request('GET', `/webhooks/${enc(id)}/events${pageQuery(page)}`);
+  }
+
   // ── Contacts ──────────────────────────────────────────────────────────────
 
   listContacts(): Promise<{ contacts: Contact[] }> {
@@ -271,12 +380,11 @@ export class YungleClient {
   // ── Transport ─────────────────────────────────────────────────────────────
 
   /**
-   * `idempotent` widens what may be retried.
+   * What may be retried after a 5xx or a lost connection.
    *
-   * GET and DELETE are safe by nature. POST is not — retrying `createTransfer`
-   * after a 500 would make a second draft — so it is opt-in per method, and set
-   * only where the server documents the operation as repeatable. Retrying a
-   * *throttle* is always fine regardless: a 429 means nothing happened.
+   * GET and DELETE are safe by nature. A POST is safe because it carries an
+   * `Idempotency-Key` (see below). PATCH is not retried. Retrying a *throttle*
+   * is always fine regardless: a 429 means nothing happened.
    */
   private async request<T>(
     method: string,
@@ -284,7 +392,14 @@ export class YungleClient {
     body?: unknown,
     opts?: { idempotent?: boolean },
   ): Promise<T> {
-    const safe = method === 'GET' || method === 'DELETE' || opts?.idempotent === true;
+    /**
+     * Every POST carries an Idempotency-Key, minted once and reused on every
+     * retry of this call — which is what makes a POST safe to retry at all. A
+     * lost response to "create transfer" used to mean a second draft; now the
+     * retry gets the first one back.
+     */
+    const idempotencyKey = method === 'POST' ? globalThis.crypto.randomUUID() : undefined;
+    const safe = method === 'GET' || method === 'DELETE' || idempotencyKey !== undefined || opts?.idempotent === true;
     let attempt = 0;
 
     for (;;) {
@@ -294,6 +409,7 @@ export class YungleClient {
           Authorization: `Bearer ${this.apiKey}`,
           Accept: 'application/json',
           'User-Agent': this.userAgent,
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -346,4 +462,35 @@ function backoffMs(attempt: number, error: YungleApiError): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Check a webhook's `Yungle-Signature` header against the RAW request body.
+ *
+ * WebCrypto rather than `node:crypto`, so it runs wherever this client does:
+ * Node, Bun, Deno and edge runtimes. Rejects a timestamp more than
+ * `toleranceSeconds` away, which is what stops a captured request being replayed.
+ */
+export async function verifyWebhook(
+  rawBody: string,
+  signatureHeader: string,
+  secret: string,
+  { toleranceSeconds = 300, now = Date.now() }: { toleranceSeconds?: number; now?: number } = {},
+): Promise<boolean> {
+  const parts = Object.fromEntries(signatureHeader.split(',').map((p) => p.split('=') as [string, string]));
+  const t = Number(parts.t);
+  if (!Number.isInteger(t) || Math.abs(now / 1000 - t) > toleranceSeconds || !parts.v1) return false;
+  const key = await globalThis.crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const mac = new Uint8Array(await globalThis.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${t}.${rawBody}`)));
+  const expected = [...mac].map((b) => b.toString(16).padStart(2, '0')).join('');
+  if (expected.length !== parts.v1.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ parts.v1.charCodeAt(i);
+  return diff === 0;
 }
