@@ -17,3 +17,4 @@ A redesigned CLI.
   - `yungle revoke` stops a transfer's link.
 - **Names:** commands accept the short ID from `yungle transfers` or a transfer's link. `yungle login --key` saves an API key. The old spellings (`auth login`, `ls transfers`, `rm transfer`) still work.
 - **MCP:** `yungle mcp install` explains that the local server needs an API key, because a browser sign-in expires within the hour.
+- **Emailing:** a browser sign-in makes links but never emails anyone. `yungle send --to` now checks this before uploading: at a terminal it offers to send a link instead, and in a script it stops before any bytes move. Use `yungle login --key` to email recipients.

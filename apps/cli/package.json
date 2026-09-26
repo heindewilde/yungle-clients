@@ -2,7 +2,7 @@
   "name": "yungle-cli",
   "version": "0.1.2",
   "type": "module",
-  "description": "Send and sync files with Yungle from the command line.",
+  "description": "Send, receive and sync large files from your terminal or CI: resumable uploads up to 100 GB, private and EU-hosted. A WeTransfer alternative for the command line.",
   "bin": {
     "yungle": "./dist/yungle.mjs"
   },
@@ -35,13 +35,18 @@
   ],
   "keywords": [
     "cli",
-    "eu",
+    "send-large-files",
     "file-transfer",
-    "gdpr",
+    "file-sharing",
+    "upload",
+    "download",
     "resumable",
     "tus",
-    "upload",
+    "ci",
+    "github-actions",
     "wetransfer-alternative",
+    "eu",
+    "gdpr",
     "yungle"
   ],
   "license": "MIT",
@@ -50,7 +55,7 @@
     "type": "git",
     "url": "git+https://github.com/heindewilde/yungle-clients.git"
   },
-  "homepage": "https://yungle.co/developers",
+  "homepage": "https://yungle.co/developers/cli?ref=npm",
   "bugs": {
     "url": "https://github.com/heindewilde/yungle-clients/issues"
   },

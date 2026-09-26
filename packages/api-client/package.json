@@ -29,7 +29,7 @@
     "type": "git",
     "url": "git+https://github.com/heindewilde/yungle-clients.git"
   },
-  "homepage": "https://yungle.co/developers",
+  "homepage": "https://yungle.co/developers/reference?ref=npm",
   "bugs": {
     "url": "https://github.com/heindewilde/yungle-clients/issues"
   },
@@ -39,8 +39,12 @@
   "keywords": [
     "yungle",
     "file-transfer",
+    "file-sharing",
     "api-client",
     "sdk",
+    "typescript",
+    "webhooks",
+    "upload",
     "wetransfer-alternative",
     "eu",
     "gdpr"

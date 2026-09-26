@@ -11,7 +11,7 @@ license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "Yungle", email = "hello@yungle.co" }]
 dependencies = ["httpx>=0.25"]
-keywords = ["yungle", "file-transfer", "upload", "tus", "resumable", "wetransfer-alternative", "gdpr", "eu"]
+keywords = ["yungle", "file-transfer", "file-sharing", "send-large-files", "upload", "tus", "resumable", "webhooks", "sdk", "wetransfer-alternative", "gdpr", "eu"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
