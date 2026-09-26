@@ -103,6 +103,17 @@ test('sending exists only with email permission; sharing only with write', async
   assert.ok(all.includes('send_transfer') && all.includes('share_local_files'));
 });
 
+test('every tool carries a title and a read-only or destructive hint in its annotations', async () => {
+  // The Claude connector directory reads these from annotations, not from the
+  // top-level title, and flags any tool without them.
+  const client = await connect({ canWrite: true, canEmail: true, local: true });
+  for (const t of (await client.listTools()).tools) {
+    assert.ok(t.annotations?.title, `${t.name}: no annotations.title`);
+    assert.equal(t.annotations.title, t.title, `${t.name}: the two titles differ`);
+    assert.ok(t.annotations.readOnlyHint === true || typeof t.annotations.destructiveHint === 'boolean', `${t.name}: no read-only or destructive hint`);
+  }
+});
+
 test('send_transfer is marked destructive, so a host asks before running it', async () => {
   const client = await connect({ canWrite: true, canEmail: true, local: false });
   const tool = (await client.listTools()).tools.find((t) => t.name === 'send_transfer')!;

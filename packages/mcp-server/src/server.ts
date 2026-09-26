@@ -64,7 +64,7 @@ export function createServer(
         'Answers: how much storage am I using? how much is left? what plan am I on? what can this ' +
         'connection do? Returns the workspace, its plan and quota, and the key\'s permissions.',
       inputSchema: {},
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'Account and storage', readOnlyHint: true },
     },
     async () => ok(await client.me()),
   );
@@ -78,7 +78,7 @@ export function createServer(
         'picked up? who did I send that to? Returns recent transfers with size, recipients, ' +
         'download count, expiry date and share link. Start here for any question about sent files.',
       inputSchema: {},
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'List transfers', readOnlyHint: true },
     },
     async () => {
       const { transfers } = await client.listTransfers();
@@ -95,7 +95,7 @@ export function createServer(
         'is it safe to share? Returns the files with their malware-scan verdicts, plus per-recipient ' +
         'delivery and download status. Needs an id from list_transfers.',
       inputSchema: { id: z.string().describe('Transfer id from list_transfers.') },
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'Transfer detail', readOnlyHint: true },
     },
     async ({ id }) => ok(wrapUntrusted(await client.getTransfer(id))),
   );
@@ -110,7 +110,7 @@ export function createServer(
         'download, not one per file — events sharing a sessionId are a single visit, so count ' +
         'distinct sessions or a single visitor looks like eight.',
       inputSchema: { id: z.string() },
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'Download receipts', readOnlyHint: true },
     },
     async ({ id }) => ok(wrapUntrusted(await client.transferDownloads(id))),
   );
@@ -125,7 +125,7 @@ export function createServer(
         'durable space clients are invited into, as opposed to a one-off transfer. Never includes ' +
         'the vault, which is unreadable to this server by design.',
       inputSchema: {},
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'List collections', readOnlyHint: true },
     },
     async () => ok(wrapUntrusted(await client.listCollections())),
   );
@@ -139,7 +139,7 @@ export function createServer(
         'Returns one collection with its secret share link, file count, total size and expiry. ' +
         'Needs an id from list_collections.',
       inputSchema: { id: z.string() },
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'Collection detail', readOnlyHint: true },
     },
     async ({ id }) => ok(wrapUntrusted(await client.getCollection(id))),
   );
@@ -153,7 +153,7 @@ export function createServer(
         'yet? Returns filenames, sizes and types. Omit folderId for every file; pass "root" for the ' +
         'top level only, or a folder id from list_folders. Filenames only — never file contents.',
       inputSchema: { id: z.string(), folderId: z.string().optional() },
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'Files in a collection', readOnlyHint: true },
     },
     async ({ id, folderId }) => ok(wrapUntrusted(await client.listCollectionFiles(id, folderId))),
   );
@@ -167,7 +167,7 @@ export function createServer(
         'Ordered by depth then path, which is NOT a pre-order traversal — build the tree from ' +
         'parentId rather than trusting the order. Each folder also carries its full materialised path.',
       inputSchema: { id: z.string() },
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'Folders in a collection', readOnlyHint: true },
     },
     async ({ id }) => ok(wrapUntrusted(await client.listFolders(id))),
   );
@@ -181,7 +181,7 @@ export function createServer(
         'Returns the invited guests and their status. Guests are not workspace members — they can ' +
         'view and download this one collection and nothing else.',
       inputSchema: { id: z.string() },
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'Guests on a collection', readOnlyHint: true },
     },
     async ({ id }) => ok(wrapUntrusted(await client.listGuests(id))),
   );
@@ -194,7 +194,7 @@ export function createServer(
         'Answers: what is this client\'s email address? who do I have saved? Returns the workspace ' +
         'address book. A contact grants no access on its own — it is a convenience, not a permission.',
       inputSchema: {},
-      annotations: { readOnlyHint: true },
+      annotations: { title: 'Address book', readOnlyHint: true },
     },
     async () => ok(wrapUntrusted(await client.listContacts())),
   );
@@ -226,7 +226,7 @@ export function createServer(
         title: z.string().optional().describe('Label for the dashboard; never shown to recipients.'),
         expiresInDays: z.number().int().positive().optional(),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      annotations: { title: 'Prepare a transfer', readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async ({ files, title, expiresInDays }) => {
       const created = await client.createTransfer({ files, title, expiresInDays });
@@ -266,7 +266,7 @@ export function createServer(
           title: z.string().optional().describe('Label for the dashboard; never shown to recipients.'),
           expiresInDays: z.number().int().positive().optional(),
         },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        annotations: { title: 'Share content as a link', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
       async ({ files, title, expiresInDays }) => {
         const contents = files.map((f) =>
@@ -301,7 +301,7 @@ export function createServer(
           title: z.string().optional(),
           expiresInDays: z.number().int().positive().optional(),
         },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        annotations: { title: 'Share files from this computer as a link', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
       async ({ paths: asked, title, expiresInDays }, extra) => {
         const isHidden = (p: string) => p.split(/[\\/]/).some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..');
@@ -356,7 +356,7 @@ export function createServer(
           recipients: z.array(z.string().email()).min(1).max(10),
           message: z.string().max(2000).optional().describe('A note shown in the email.'),
         },
-        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        annotations: { title: 'Email a transfer to recipients', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       },
       async ({ transferId, recipients, message }, extra) => {
         const { transfer } = await client.getTransfer(transferId);
