@@ -36,4 +36,8 @@ jobs:
           if [ -z "$MCP_REGISTRY_KEY" ]; then echo "::warning::MCP_REGISTRY_KEY not set; publish server.json by hand"; exit 0; fi
           curl -fsSL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz | tar xz mcp-publisher
           ./mcp-publisher login dns --domain yungle.co --private-key "$MCP_REGISTRY_KEY"
-          cd packages/mcp-server && ../../mcp-publisher publish
+          # npm takes a minute or two to serve a fresh version, and the registry
+          # refuses one it cannot see yet — the first release hit exactly that.
+          cd packages/mcp-server
+          for i in 1 2 3 4 5 6 7 8 9 10; do ../../mcp-publisher publish && exit 0; sleep 30; done
+          exit 1
