@@ -1,5 +1,11 @@
 # yungle-mcp
 
+## 0.2.2
+
+### Patch Changes
+
+- [`7a3bef5`](https://github.com/heindewilde/yungle-clients/commit/7a3bef5a8c183bc390cf435fa36d41c192063f1e) Thanks [@heindewilde](https://github.com/heindewilde)! - Without `YUNGLE_API_KEY` the server now starts and lists its read tools instead of exiting, so directories and inspectors can see what it offers. Every call explains that a key is missing; nothing can be read, shared or sent without one.
+
 ## 0.2.1
 
 ### Patch Changes
