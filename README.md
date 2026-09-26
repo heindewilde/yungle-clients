@@ -5,7 +5,7 @@
 # Yungle for developers
 
 **Send large files from your terminal, your scripts and your AI assistant.**<br>
-Private, EU-hosted file transfer: a WeTransfer alternative with a CLI, an MCP server, typed SDKs and webhooks.
+Private, sustainable file transfer: a WeTransfer alternative with a CLI, an MCP server, typed SDKs and webhooks.
 
 [![npm: yungle-cli](https://img.shields.io/npm/v/yungle-cli?label=yungle-cli&color=34a868)](https://www.npmjs.com/package/yungle-cli)
 [![npm: yungle-mcp](https://img.shields.io/npm/v/yungle-mcp?label=yungle-mcp&color=34a868)](https://www.npmjs.com/package/yungle-mcp)
