@@ -4,7 +4,7 @@ import type { YungleClient } from 'yungle-client';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { createServer, type ServerOptions } from './server';
+import { createServer, keylessClient, type ServerOptions } from './server';
 import { UNTRUSTED_NOTE, wrapUntrusted } from './untrusted';
 
 /**
@@ -283,4 +283,17 @@ test('a symlink to a hidden path is refused by where it leads', async () => {
   assert.equal((r as { isError?: boolean }).isError, true);
   assert.match(text(r), /hidden/);
   await client.close();
+});
+
+test('without a key the server still lists its read tools, and every call says what is missing', async () => {
+  const server = createServer(keylessClient(), { canWrite: false, canEmail: false, local: true });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '1.0.0' });
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  const names = (await client.listTools()).tools.map((t) => t.name);
+  assert.ok(names.includes('list_transfers'));
+  assert.ok(!names.some((n) => /share|send/.test(n)), 'no sharing or sending without a key');
+  const r = await client.callTool({ name: 'list_transfers', arguments: {} });
+  assert.equal(r.isError, true);
+  assert.match(text(r), /YUNGLE_API_KEY is not set/);
 });

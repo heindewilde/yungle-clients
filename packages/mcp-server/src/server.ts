@@ -425,10 +425,15 @@ const INLINE_LIMIT = 25 * 1024 * 1024;
 export async function startStdioServer(): Promise<void> {
   const apiKey = process.env.YUNGLE_API_KEY?.trim();
   if (!apiKey) {
+    // Start anyway, with the read tools and nothing else, so a directory or an
+    // inspector can list what this server offers. Every call says what is
+    // missing; nothing can be read, shared or sent without a key.
     process.stderr.write(
-      'YUNGLE_API_KEY is not set. Create a key at https://yungle.co/dashboard/settings/api\n',
+      'YUNGLE_API_KEY is not set: listing tools only. Create a key at https://yungle.co/dashboard/settings/api\n',
     );
-    process.exit(2);
+    const server = createServer(keylessClient(), { canWrite: false, canEmail: false, local: true });
+    await server.connect(new StdioServerTransport());
+    return;
   }
 
   const client = new YungleClient({
@@ -459,6 +464,17 @@ export async function startStdioServer(): Promise<void> {
     local: true,
   });
   await server.connect(new StdioServerTransport());
+}
+
+/** A client whose every call explains that there is no key. */
+export function keylessClient(): YungleClient {
+  const message =
+    'YUNGLE_API_KEY is not set, so this server cannot reach Yungle. Create a key at ' +
+    'https://yungle.co/dashboard/settings/api and add it to this MCP server\'s environment, ' +
+    'or connect to the hosted server at https://yungle.co/mcp instead.';
+  return new Proxy({} as YungleClient, {
+    get: () => () => Promise.reject(new Error(message)),
+  });
 }
 
 /** Successful tool result. */
