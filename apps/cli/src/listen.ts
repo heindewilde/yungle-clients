@@ -50,7 +50,7 @@ export async function ensureListenEndpoint(api: YungleClient): Promise<{ id: str
       throw new Error(
         'This session cannot add webhook endpoints: `yungle login` never grants that, so a phished ' +
           'code cannot wire your account to someone else’s server. Use an API key with webhooks:write ' +
-          '(yungle auth login), or add a pull endpoint in Settings → Webhooks and listen with a key.',
+          '(yungle login --key), or add a pull endpoint in Settings → Webhooks and listen with a key.',
       );
     }
     if (err instanceof YungleApiError && err.code === 'upgrade_required') {

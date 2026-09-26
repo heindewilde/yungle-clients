@@ -48,7 +48,7 @@ export function nextPoll(
   }
 }
 
-function openBrowser(url: string): void {
+export function openBrowser(url: string): void {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
   try {
