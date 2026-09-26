@@ -1,5 +1,11 @@
 # yungle-mcp
 
+## 0.2.1
+
+### Patch Changes
+
+- [`7634870`](https://github.com/heindewilde/yungle-clients/commit/76348703973b838b1ed39b76314a6fa0240d9c2b) Thanks [@heindewilde](https://github.com/heindewilde)! - Every tool now repeats its human-readable title in `annotations.title`, where the Claude connector directory and some MCP hosts look for it.
+
 ## 0.2.0
 
 ### Minor Changes

@@ -1,7 +1,7 @@
 {
   "name": "yungle-mcp",
   "mcpName": "co.yungle/yungle",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "MCP server for Yungle: let Claude, Cursor or any MCP client read your file transfers, share files and send them, with your approval.",
   "bin": {
