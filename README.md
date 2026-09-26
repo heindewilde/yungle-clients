@@ -41,6 +41,7 @@ sign-in code can't be used to mail strangers.
 | **[MCP server](packages/mcp-server)** | `https://yungle.co/mcp` | Connect Claude, Cursor or any MCP client with one sign-in: ask what arrived, share files, approve every send |
 | **[TypeScript SDK](packages/api-client)** | `npm i yungle-client` | The whole API, typed and dependency-free. Node, Bun, Deno, edge runtimes |
 | **[Python SDK](python)** | `pip install yungle` | The API from Python, with a one-call `send()` that handles the upload |
+| **[GitHub Action](https://github.com/heindewilde/yungle-send-action)** | `uses: heindewilde/yungle-send-action@v1` | Send build artefacts to a client from CI and get the link back as an output |
 | **[Examples](examples)** | | GitHub Actions, nightly reports, and more at [yungle.co/developers/recipes](https://yungle.co/developers/recipes?ref=github) |
 
 All of it talks to the same public [REST API](https://yungle.co/developers/reference?ref=github)
