@@ -1,6 +1,6 @@
 {
   "name": "yungle-cli",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Send, receive and sync large files from your terminal or CI: resumable uploads up to 100 GB, private and EU-hosted. A WeTransfer alternative for the command line.",
   "bin": {
