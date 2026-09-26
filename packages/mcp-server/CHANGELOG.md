@@ -1,5 +1,11 @@
 # yungle-mcp
 
+## 0.2.3
+
+### Patch Changes
+
+- [`5f80fd3`](https://github.com/heindewilde/yungle-clients/commit/5f80fd313bb88dbc8924087f48cb9558d6b878f1) Thanks [@heindewilde](https://github.com/heindewilde)! - Tool descriptions now only describe what each tool does and returns. They no longer point the model at other tools or tell it how to behave; the safety note about untrusted data stays in every result, where it belongs.
+
 ## 0.2.2
 
 ### Patch Changes
