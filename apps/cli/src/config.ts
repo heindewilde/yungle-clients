@@ -24,6 +24,8 @@ export const RESUME_PATH = join(xdg('XDG_CACHE_HOME', '.cache'), 'yungle', 'uplo
 export interface Config {
   apiKey?: string;
   baseUrl?: string;
+  /** From `yungle login` (device flow). An API key, if also present, wins. */
+  oauth?: { accessToken: string; refreshToken: string; expiresAt: number };
 }
 
 export async function readConfig(): Promise<Config> {
@@ -60,7 +62,42 @@ export async function resolveKey(): Promise<{ apiKey: string; baseUrl?: string; 
 
   if (fromEnv) return { apiKey: fromEnv, baseUrl, source: 'YUNGLE_API_KEY' };
   if (config.apiKey) return { apiKey: config.apiKey, baseUrl, source: CONFIG_PATH };
+  if (config.oauth) {
+    const token = await freshAccessToken(config, baseUrl);
+    if (token) return { apiKey: token, baseUrl, source: `${CONFIG_PATH} (yungle login)` };
+  }
   return null;
+}
+
+export const CLI_CLIENT_ID = 'yungle-cli';
+const DEFAULT_API = 'https://yungle.co/api/v1';
+
+export function originOf(baseUrl: string | undefined): string {
+  return new URL(baseUrl ?? DEFAULT_API).origin;
+}
+
+/**
+ * The saved access token, refreshed first if it has under ten minutes left.
+ * Refresh tokens rotate: the new pair is written before the token is used, so a
+ * crash between the two cannot strand the only valid refresh token in memory.
+ * Null when the session is gone (revoked, or unused for 30 days).
+ */
+export async function freshAccessToken(config: Config, baseUrl?: string): Promise<string | null> {
+  const o = config.oauth;
+  if (!o) return null;
+  if (o.expiresAt - Date.now() > 10 * 60_000) return o.accessToken;
+  const res = await fetch(`${originOf(baseUrl)}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: o.refreshToken, client_id: CLI_CLIENT_ID }),
+  }).catch(() => null);
+  if (!res?.ok) return null;
+  const t = (await res.json()) as { access_token: string; refresh_token: string; expires_in: number };
+  await writeConfig({
+    ...config,
+    oauth: { accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000 },
+  });
+  return t.access_token;
 }
 
 // ── Resume state ────────────────────────────────────────────────────────────

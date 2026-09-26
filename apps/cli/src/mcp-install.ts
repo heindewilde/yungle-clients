@@ -215,3 +215,8 @@ function deepEqual(a: unknown, b: unknown): boolean {
 export function writeScopes(scopes: readonly string[]): string[] {
   return scopes.filter((s) => s.endsWith(':write'));
 }
+
+/** Write scopes the MCP server has no tool for: always refused at install. */
+export function unusableWriteScopes(scopes: readonly string[]): string[] {
+  return writeScopes(scopes).filter((s) => s !== 'transfers:write');
+}

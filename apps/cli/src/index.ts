@@ -27,11 +27,13 @@ import {
   mcpClients,
   mergeServerEntry,
   serverEntry,
+  unusableWriteScopes,
   writeScopes,
   type ClientId,
   type McpClient,
 } from './mcp-install';
 import { describeEvent, ensureListenEndpoint, cursorAtNow, signForForward } from './listen';
+import { deviceLogin, logout } from './login';
 import { uploadAll } from './upload';
 
 /**
@@ -54,7 +56,10 @@ const USER_AGENT = `yungle-cli/${CLI_VERSION}`;
 
 export const HELP = `yungle — send and sync files with Yungle
 
-  yungle auth login                       save an API key
+  yungle login                            sign in with your browser
+    --no-browser          print the link instead of opening it
+  yungle logout                           sign out and revoke the session
+  yungle auth login                       save an API key instead
   yungle auth status                      show which key is in use
   yungle send <paths…>                    send files, print the share link
     --to <email>          recipient (repeatable, or comma-separated)
@@ -75,6 +80,7 @@ export const HELP = `yungle — send and sync files with Yungle
   yungle mcp install                      let an AI assistant read your Yungle
     --client <id>         claude-desktop | claude-code | cursor | windsurf
     --dry-run             show what would change, write nothing
+    --allow-write         accept a key with transfers:write (share links)
   yungle mcp status                       show where it is installed
   yungle --version                        print the version
 
@@ -110,6 +116,14 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       case 'auth':
         return await auth(positionals, flags, json);
+      case 'login': {
+        const scope = await deviceLogin(stringFlag(flags.url), { openBrowser: flags['no-browser'] !== true });
+        return out(json, { signedIn: true, scope }, `Signed in. ${scope ? `Allowed: ${scope.split(' ').join(', ')}.` : ''}`);
+      }
+      case 'logout': {
+        const had = await logout(stringFlag(flags.url));
+        return out(json, { signedOut: had }, had ? 'Signed out; the session is revoked.' : 'You were not signed in with `yungle login`.');
+      }
       case 'send':
         return await send(positionals, flags, json);
       case 'get':
@@ -178,7 +192,7 @@ async function auth(
   if (sub === 'status') {
     const resolved = await resolveKey();
     if (!resolved) {
-      return out(json, { authenticated: false }, 'Not signed in. Run `yungle auth login`.', 1);
+      return out(json, { authenticated: false }, 'Not signed in. Run `yungle login`.', 1);
     }
     const me = await client(flags).me();
     return out(
@@ -256,10 +270,13 @@ async function send(
   }
 
   await streamAll(files, created, api);
+  // An upload can outlast a `yungle login` access token (an hour); refresh before
+  // the call that makes the transfer live, rather than failing at the finish line.
+  const after = await freshClient(flags, api);
   await dropSession(key);
 
   const recipients = listFlag(flags.to);
-  const finalized = await api.finalizeTransfer(created.transfer.id, {
+  const finalized = await after.finalizeTransfer(created.transfer.id, {
     ...(recipients.length ? { recipients } : {}),
     ...(stringFlag(flags.message) ? { message: stringFlag(flags.message) } : {}),
     ...(stringFlag(flags.password) ? { password: stringFlag(flags.password) } : {}),
@@ -421,7 +438,7 @@ async function push(
   await streamAll(files, targets, api);
   await dropSession(key);
 
-  const collection = await api.getCollection(collectionId);
+  const collection = await (await freshClient(flags, api)).getCollection(collectionId);
   return out(
     json,
     { collection: collection.collection.id, uploaded: files.length, url: collection.collection.url },
@@ -506,6 +523,15 @@ async function remove(
 
 // ── Plumbing ────────────────────────────────────────────────────────────────
 
+/** The same client, unless a saved `yungle login` session needed refreshing. */
+async function freshClient(flags: Record<string, string | boolean>, current: YungleClient): Promise<YungleClient> {
+  if (process.env.YUNGLE_API_KEY?.trim()) return current;
+  const resolved = await resolveKey();
+  if (!resolved || resolved.apiKey === cachedKey) return current;
+  cachedKey = resolved.apiKey;
+  return client(flags);
+}
+
 function client(flags: Record<string, string | boolean>): YungleClient {
   const apiKey = process.env.YUNGLE_API_KEY?.trim() ?? cachedKey;
   if (!apiKey) throw new NotSignedIn();
@@ -514,7 +540,7 @@ function client(flags: Record<string, string | boolean>): YungleClient {
 
 class NotSignedIn extends Error {
   constructor() {
-    super('Not signed in. Run `yungle auth login`, or set YUNGLE_API_KEY.');
+    super('Not signed in. Run `yungle login`, or set YUNGLE_API_KEY.');
     this.name = 'NotSignedIn';
   }
 }
@@ -753,12 +779,14 @@ async function mcp(
   }
 
   /**
-   * Refuse a key that can write.
+   * Refuse a key with more power than the server can use.
    *
-   * The MCP server has no tool that mutates anything, so a write scope buys
-   * nothing here and costs real safety: a model can be steered by a filename in
-   * a collection it was asked to summarise, and MCP has no confirmation
-   * primitive. The only durable guarantee is a credential that cannot mutate.
+   * The server's only writes are sharing a link and — with a yes from the user
+   * in their client, every time — emailing it (`transfers:write`). Any other
+   * write scope buys the assistant nothing and puts a stronger credential in a
+   * config file it reads, so it is refused. `transfers:write` itself needs
+   * `--allow-write`: a read-only key stays the default, because a model can be
+   * steered by a filename.
    *
    * This is the one part of install that needs the network. It fails CLOSED — if
    * the scopes cannot be read, nothing is written, because installing a key of
@@ -776,15 +804,17 @@ async function mcp(
     return 1;
   }
   const writes = writeScopes(scopes);
-  if (writes.length > 0) {
+  const unusable = unusableWriteScopes(scopes);
+  if (unusable.length > 0 || (writes.length > 0 && flags['allow-write'] !== true)) {
     process.stderr.write(
-      `This key can write (${writes.join(', ')}).\n\n` +
-        `The MCP server has no tool that sends, invites, revokes or deletes, so a\n` +
-        `write scope grants an assistant nothing it can use — but it does put a\n` +
-        `credential that can change your account into a config file an assistant\n` +
-        `reads. Create a read-only key instead:\n\n` +
+      (unusable.length > 0
+        ? `This key can ${unusable.join(', ')}, which the MCP server never uses.\n`
+        : `This key can write (${writes.join(', ')}).\n`) +
+        `\nGive an assistant as little as it needs. For reading, create a key with only\n` +
+        `the :read scopes. To let it share links (and email them, after you confirm\n` +
+        `each send), add transfers:write and pass --allow-write.\n\n` +
         `  https://yungle.co/dashboard/settings/api\n\n` +
-        `then \`yungle auth login\` with it and re-run this.\n`,
+        `Or skip keys entirely: connect your client to https://yungle.co/mcp and sign in.\n`,
     );
     return 1;
   }

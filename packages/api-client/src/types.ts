@@ -39,6 +39,10 @@ export interface KeyInfo {
   id: string;
   name: string;
   scopes: string[];
+  /** Absent on servers before 2026-09-26. */
+  via?: 'key' | 'oauth';
+  /** Whether this credential may make Yungle email anyone. Absent on older servers. */
+  canEmail?: boolean;
 }
 
 export interface Me {

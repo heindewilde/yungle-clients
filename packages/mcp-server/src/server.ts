@@ -2,7 +2,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { YungleApiError, YungleClient } from 'yungle-client';
 import { z } from 'zod';
+import { stat } from 'node:fs/promises';
+import { basename } from 'node:path';
 import { UNTRUSTED_NOTE, wrapUntrusted } from './untrusted';
+import { uploadBytes, uploadPath } from './upload';
 
 /**
  * A Model Context Protocol server for Yungle.
@@ -24,7 +27,19 @@ declare const __YUNGLE_MCP_VERSION__: string | undefined;
 export const MCP_VERSION =
   typeof __YUNGLE_MCP_VERSION__ === 'string' ? __YUNGLE_MCP_VERSION__ : 'dev';
 
-export function createServer(client: YungleClient): McpServer {
+export interface ServerOptions {
+  /** transfers:write — may create and share links. */
+  canWrite: boolean;
+  /** May make Yungle email someone (see send_transfer). */
+  canEmail: boolean;
+  /** Runs on the user's machine (stdio), so local files are reachable. */
+  local: boolean;
+}
+
+export function createServer(
+  client: YungleClient,
+  opts: ServerOptions = { canWrite: false, canEmail: false, local: false },
+): McpServer {
   const server = new McpServer(
     { name: 'yungle', version: MCP_VERSION },
     {
@@ -184,19 +199,18 @@ export function createServer(client: YungleClient): McpServer {
     async () => ok(wrapUntrusted(await client.listContacts())),
   );
 
-  // ── The one write ─────────────────────────────────────────────────────────
+  // ── Writing ───────────────────────────────────────────────────────────────
 
   server.registerTool(
     'create_transfer',
     {
       title: 'Prepare a transfer',
       description: [
-        'Prepare a transfer and return a link the user can complete in their browser.',
+        'Prepare a draft transfer for files the user will upload themselves, and return its id.',
         '',
-        'This does NOT upload any files and does NOT email anybody — it cannot: file',
-        'bytes never travel through this connection. It creates a draft and hands back',
-        'a URL. Use it when the user asks you to "start" or "set up" a send; tell them',
-        'to finish it in the browser, or to run `yungle send` if they have the CLI.',
+        'This does NOT upload any files and does NOT email anybody. Use it when the user wants',
+        'to start a send and finish it in the browser or with `yungle send`. To share content',
+        'you have in hand, use create_share_link instead.',
       ].join('\n'),
       inputSchema: {
         files: z
@@ -218,11 +232,8 @@ export function createServer(client: YungleClient): McpServer {
       const created = await client.createTransfer({ files, title, expiresInDays });
       return ok({
         transferId: created.transfer.id,
-        /**
-         * A draft, explicitly. Nothing is live and nobody has been emailed —
-         * saying so in the payload, not only in the tool description, because
-         * the payload is what a model summarises back to the user.
-         */
+        // Said in the payload, not only the description: the payload is what a
+        // model summarises back to the user.
         status: 'draft — no files uploaded, nobody emailed',
         finishInBrowser: `Open the Yungle dashboard to upload the files and send this transfer (id ${created.transfer.id}).`,
         expiresAt: created.transfer.expiresAt,
@@ -230,24 +241,170 @@ export function createServer(client: YungleClient): McpServer {
     },
   );
 
+  if (opts.canWrite) {
+    server.registerTool(
+      'create_share_link',
+      {
+        title: 'Share content as a link',
+        description: [
+          'Upload one or more small files you have the content of (text, or base64 for binary) as a',
+          'Yungle transfer and return its link. Nobody is emailed: the link is returned to you, and',
+          'the user decides where it goes. Up to 25 MB in total. Links expire (7 days on the free plan).',
+        ].join('\n'),
+        inputSchema: {
+          files: z
+            .array(
+              z.object({
+                name: z.string().min(1).max(200),
+                text: z.string().optional().describe('UTF-8 content.'),
+                base64: z.string().optional().describe('Binary content, base64-encoded. Use instead of text.'),
+                mimeType: z.string().optional(),
+              }),
+            )
+            .min(1)
+            .max(20),
+          title: z.string().optional().describe('Label for the dashboard; never shown to recipients.'),
+          expiresInDays: z.number().int().positive().optional(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ files, title, expiresInDays }) => {
+        const contents = files.map((f) =>
+          f.base64 !== undefined ? new Uint8Array(Buffer.from(f.base64, 'base64')) : new TextEncoder().encode(f.text ?? ''),
+        );
+        const total = contents.reduce((n, c) => n + c.byteLength, 0);
+        if (total > INLINE_LIMIT) return fail(`That is ${Math.ceil(total / 1024 / 1024)} MB; this tool takes up to 25 MB.`);
+        const draft = await client.createTransfer({
+          files: files.map((f, i) => ({ name: f.name, size: contents[i]!.byteLength, type: f.mimeType })),
+          title,
+          expiresInDays,
+        });
+        for (const [i, target] of draft.files.entries()) await uploadBytes(draft.tusEndpoint, target, contents[i]!);
+        const { transfer } = await client.finalizeTransfer(draft.transfer.id, {});
+        return ok({ transferId: transfer.id, url: transfer.url, expiresAt: transfer.expiresAt, emailed: 'nobody' });
+      },
+    );
+  }
+
+  if (opts.canWrite && opts.local) {
+    server.registerTool(
+      'share_local_files',
+      {
+        title: 'Share files from this computer as a link',
+        description: [
+          'Upload files from this machine as a Yungle transfer and return its link, resumably and',
+          'of any size the plan allows. Nobody is emailed. Refuses hidden files and folders',
+          '(dotfiles such as .env or .ssh), which almost never belong in a share link.',
+        ].join('\n'),
+        inputSchema: {
+          paths: z.array(z.string().min(1)).min(1).max(100).describe('Absolute paths to files.'),
+          title: z.string().optional(),
+          expiresInDays: z.number().int().positive().optional(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ paths, title, expiresInDays }, extra) => {
+        const hidden = paths.filter((p) => p.split(/[\\/]/).some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..'));
+        if (hidden.length) return fail(`Refused: ${hidden.join(', ')} is hidden. Share it from the dashboard if you really mean to.`);
+        const stats = await Promise.all(paths.map((p) => stat(p)));
+        if (stats.some((s) => !s.isFile())) return fail('Every path must be a file (not a folder).');
+        const agreed = await confirm(
+          server,
+          `Share ${paths.length === 1 ? paths[0] : `${paths.length} files`} as a Yungle link? Anyone with the link can download ${paths.length === 1 ? 'it' : 'them'} until it expires.`,
+          extra,
+        );
+        if (agreed === 'declined') return ok({ shared: false, reason: 'The user declined.' });
+        const draft = await client.createTransfer({
+          files: paths.map((p, i) => ({ name: basename(p), size: stats[i]!.size })),
+          title,
+          expiresInDays,
+        });
+        for (const [i, target] of draft.files.entries()) await uploadPath(draft.tusEndpoint, target, paths[i]!, stats[i]!.size);
+        const { transfer } = await client.finalizeTransfer(draft.transfer.id, {});
+        return ok({ transferId: transfer.id, url: transfer.url, expiresAt: transfer.expiresAt, emailed: 'nobody' });
+      },
+    );
+  }
+
+  if (opts.canWrite && opts.canEmail) {
+    server.registerTool(
+      'send_transfer',
+      {
+        title: 'Email a transfer to recipients',
+        description: [
+          'Email an existing transfer (from create_share_link or share_local_files) to up to 10',
+          'recipients. The user is asked to confirm every send, with the addresses and message',
+          'shown to them; if this client cannot ask, nothing is sent and you get the link to pass on.',
+        ].join('\n'),
+        inputSchema: {
+          transferId: z.string(),
+          recipients: z.array(z.string().email()).min(1).max(10),
+          message: z.string().max(2000).optional().describe('A note shown in the email.'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ transferId, recipients, message }, extra) => {
+        const { transfer } = await client.getTransfer(transferId);
+        const question =
+          `Email this Yungle transfer to ${recipients.join(', ')}?` + (message ? ` The note will read: "${message}"` : '');
+        const agreed = await confirm(server, question, extra);
+        if (agreed !== 'confirmed') {
+          return ok({
+            sent: false,
+            reason:
+              agreed === 'unsupported'
+                ? 'This assistant cannot ask the user to confirm an email, so Yungle does not send one from here. Give the user the link to send themselves.'
+                : 'The user declined.',
+            url: transfer.url,
+          });
+        }
+        const sent = await client.finalizeTransfer(transferId, { recipients, ...(message ? { message } : {}) });
+        return ok({ sent: true, notified: sent.notified, url: sent.transfer.url });
+      },
+    );
+  }
+
   return server;
 }
 
 /**
- * Why there is no `send_transfer` tool.
+ * Ask the human, through the MCP client, when the client can.
+ *
+ * `unsupported` is a real answer, not a yes: the send tool treats it as no.
+ * Sharing a local file treats it as "the host's own tool approval stands" —
+ * that tool emails nobody, and every host that runs tools without elicitation
+ * still asks before a non-read-only tool runs.
+ */
+async function confirm(
+  server: McpServer,
+  message: string,
+  _extra: unknown,
+): Promise<'confirmed' | 'declined' | 'unsupported'> {
+  if (!server.server.getClientCapabilities()?.elicitation) return 'unsupported';
+  const res = await server.server.elicitInput({
+    message,
+    requestedSchema: {
+      type: 'object',
+      properties: { confirm: { type: 'boolean', title: 'Yes, go ahead', description: message } },
+      required: ['confirm'],
+    },
+  });
+  return res.action === 'accept' && res.content?.confirm === true ? 'confirmed' : 'declined';
+}
+
+const INLINE_LIMIT = 25 * 1024 * 1024;
+
+/**
+ * Why sending is gated three ways.
  *
  * Sending mails strangers from Yungle's authenticated domain, carrying text the
- * caller supplies — the exact surface the security review spent effort closing
- * when it was reachable without an account. Handing that verb to a language
- * model, which can be steered by a filename in a collection it was asked to
- * summarise, reopens it from a direction no rate limit describes.
- *
- * The rule that makes this safe is not "ask for confirmation" — MCP has no
- * confirmation primitive and the host may or may not offer one. It is that the
- * capability is absent. Preparing a draft is genuinely useful and cannot mail
- * anyone; a human completes it. If a send tool is ever added, recipients must
- * be restricted to addresses already in Contacts, and it should still be off by
- * default.
+ * caller supplies, and a model can be steered by a filename in a collection it
+ * was asked to summarise. So: the tool exists only when the credential may
+ * email (an API key, or an OAuth grant where the user ticked "Email
+ * recipients", which is off by default); every send is confirmed by the human
+ * through elicitation, with the addresses and message in front of them; and a
+ * client that cannot ask gets the link, never a silent email. Sharing a link
+ * emails nobody and needs only transfers:write.
  */
 
 export async function startStdioServer(): Promise<void> {
@@ -269,8 +426,9 @@ export async function startStdioServer(): Promise<void> {
   // revoked, expired or on a free plan produces a specific message here; the
   // same failure surfacing mid-conversation reads to the user as the assistant
   // being unable to do something rather than as a configuration problem.
+  let me;
   try {
-    await client.me();
+    me = await client.me();
   } catch (err) {
     if (err instanceof YungleApiError) {
       process.stderr.write(`Yungle: ${err.message}\n`);
@@ -279,11 +437,21 @@ export async function startStdioServer(): Promise<void> {
     throw err;
   }
 
-  const server = createServer(client);
+  const scopes = new Set(me!.key.scopes);
+  const server = createServer(client, {
+    canWrite: scopes.has('transfers:write'),
+    canEmail: scopes.has('transfers:write') && me!.key.canEmail === true,
+    local: true,
+  });
   await server.connect(new StdioServerTransport());
 }
 
 /** Successful tool result. */
 function ok(payload: unknown): { content: { type: 'text'; text: string }[] } {
   return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
+}
+
+/** A tool result that says it failed, so the model does not report success. */
+function fail(message: string): { content: { type: 'text'; text: string }[]; isError: true } {
+  return { content: [{ type: 'text', text: message }], isError: true };
 }
