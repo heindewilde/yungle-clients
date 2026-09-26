@@ -465,7 +465,7 @@ async function status(positionals: string[], flags: Flags, json: boolean): Promi
     lines.push('', table(
       recipients.map((r) => [
         r.email,
-        r.bouncedAt ? o.red('email bounced') : r.downloaded ? accentOut('downloaded') : r.opened ? 'opened' : r.notifiedAt ? o.dim('emailed') : o.dim('email queued'),
+        r.bouncedAt ? o.red('email bounced') : r.downloaded ? accentOut('downloaded') : r.notifiedAt ? o.dim('emailed') : o.dim('email queued'),
       ]),
       { flex: 0, header: ['Recipient', 'Status'] },
     ));

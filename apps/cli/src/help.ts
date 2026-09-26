@@ -26,7 +26,7 @@ Send and receive
     --out <dir>           where to save (default: current directory)
     --zip                 one zip instead of separate files
     --password <text>     for a protected link; asks if left out
-  yungle status [<id|link>]               who opened and downloaded a transfer
+  yungle status [<id|link>]               who downloaded a transfer
   yungle transfers                        list your recent transfers
   yungle revoke <id>                      stop a transfer's link for good
 

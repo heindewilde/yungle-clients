@@ -112,7 +112,10 @@ export interface RecipientStatus {
   email: string;
   notifiedAt: Iso8601 | null;
   downloaded: boolean;
-  /** Loaded the link. Recorded from a browser, so link scanners do not count. */
+  /**
+   * @deprecated Always false since 2026-09-26: Yungle no longer records whether
+   * a recipient opened the page — only whether they downloaded.
+   */
   opened: boolean;
   /**
    * Set when mail to this address permanently failed. Additive since 2026-09;

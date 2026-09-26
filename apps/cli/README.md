@@ -29,7 +29,7 @@ Works on the free plan. Node 22 or newer.
 |---|---|
 | `yungle send <paths…>` | Send files or folders and print the link. `--to`, `--message`, `--title`, `--password`, `--expires` |
 | `yungle get <link>` | Download a transfer sent to you. No account needed. `--out`, `--zip`, `--password` |
-| `yungle status [<id\|link>]` | Who opened and downloaded a transfer. Without an id, pick from your recent ones |
+| `yungle status [<id\|link>]` | Who downloaded a transfer. Without an id, pick from your recent ones |
 | `yungle transfers` | Your recent transfers |
 | `yungle revoke <id>` | Stop a transfer's link for good (asks first) |
 

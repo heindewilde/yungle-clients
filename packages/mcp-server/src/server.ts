@@ -91,7 +91,7 @@ export function createServer(
     {
       title: 'Transfer detail',
       description:
-        'Answers: what is in this transfer? was it delivered? has a specific recipient opened it? ' +
+        'Answers: what is in this transfer? was it delivered? has a specific recipient downloaded it? ' +
         'is it safe to share? Returns the files with their malware-scan verdicts, plus per-recipient ' +
         'delivery and download status for one transfer id.',
       inputSchema: { id: z.string().describe('Transfer id.') },
