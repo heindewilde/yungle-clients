@@ -76,7 +76,7 @@ export function createServer(
       description:
         'Answers: what have I sent recently? what is expiring soon? which deliveries has nobody ' +
         'picked up? who did I send that to? Returns recent transfers with size, recipients, ' +
-        'download count, expiry date and share link. Start here for any question about sent files.',
+        'download count, expiry date and share link.',
       inputSchema: {},
       annotations: { title: 'List transfers', readOnlyHint: true },
     },
@@ -93,8 +93,8 @@ export function createServer(
       description:
         'Answers: what is in this transfer? was it delivered? has a specific recipient opened it? ' +
         'is it safe to share? Returns the files with their malware-scan verdicts, plus per-recipient ' +
-        'delivery and download status. Needs an id from list_transfers.',
-      inputSchema: { id: z.string().describe('Transfer id from list_transfers.') },
+        'delivery and download status for one transfer id.',
+      inputSchema: { id: z.string().describe('Transfer id.') },
       annotations: { title: 'Transfer detail', readOnlyHint: true },
     },
     async ({ id }) => ok(wrapUntrusted(await client.getTransfer(id))),
@@ -106,9 +106,8 @@ export function createServer(
       title: 'Download receipts',
       description:
         'Answers: did the client download it? when? how many times? Returns download events with ' +
-        'timestamps and per-recipient status. IMPORTANT when counting: one page visit is one ' +
-        'download, not one per file — events sharing a sessionId are a single visit, so count ' +
-        'distinct sessions or a single visitor looks like eight.',
+        'timestamps and per-recipient status. One visit can fetch several files: events that ' +
+        'share a sessionId belong to the same visit.',
       inputSchema: { id: z.string() },
       annotations: { title: 'Download receipts', readOnlyHint: true },
     },
@@ -136,8 +135,7 @@ export function createServer(
       title: 'Collection detail',
       description:
         'Answers: what is the link for this collection? how much is in it? when does it expire? ' +
-        'Returns one collection with its secret share link, file count, total size and expiry. ' +
-        'Needs an id from list_collections.',
+        'Returns one collection with its secret share link, file count, total size and expiry.',
       inputSchema: { id: z.string() },
       annotations: { title: 'Collection detail', readOnlyHint: true },
     },
@@ -151,7 +149,7 @@ export function createServer(
       description:
         'Answers: what files are in this collection? what is in this folder? are the raws uploaded ' +
         'yet? Returns filenames, sizes and types. Omit folderId for every file; pass "root" for the ' +
-        'top level only, or a folder id from list_folders. Filenames only — never file contents.',
+        'top level only, or a folder id. Filenames only — never file contents.',
       inputSchema: { id: z.string(), folderId: z.string().optional() },
       annotations: { title: 'Files in a collection', readOnlyHint: true },
     },
@@ -164,8 +162,8 @@ export function createServer(
       title: 'Folders in a collection',
       description:
         'Answers: how is this collection organised? what folders exist? Returns the folder tree. ' +
-        'Ordered by depth then path, which is NOT a pre-order traversal — build the tree from ' +
-        'parentId rather than trusting the order. Each folder also carries its full materialised path.',
+        'Ordered by depth, then path (not a pre-order traversal). Each folder carries its parentId ' +
+        'and its full path.',
       inputSchema: { id: z.string() },
       annotations: { title: 'Folders in a collection', readOnlyHint: true },
     },
@@ -208,9 +206,8 @@ export function createServer(
       description: [
         'Prepare a draft transfer for files the user will upload themselves, and return its id.',
         '',
-        'This does NOT upload any files and does NOT email anybody. Use it when the user wants',
-        'to start a send and finish it in the browser or with `yungle send`. To share content',
-        'you have in hand, use create_share_link instead.',
+        'It uploads no files and emails nobody: the user uploads the files and sends the transfer',
+        'themselves, in the browser or with the Yungle CLI.',
       ].join('\n'),
       inputSchema: {
         files: z
@@ -347,7 +344,7 @@ export function createServer(
       {
         title: 'Email a transfer to recipients',
         description: [
-          'Email an existing transfer (from create_share_link or share_local_files) to up to 10',
+          'Email an existing transfer, one already shared as a link, to up to 10',
           'recipients. The user is asked to confirm every send, with the addresses and message',
           'shown to them; if this client cannot ask, nothing is sent and you get the link to pass on.',
         ].join('\n'),

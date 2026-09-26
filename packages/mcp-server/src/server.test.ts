@@ -297,3 +297,17 @@ test('without a key the server still lists its read tools, and every call says w
   assert.equal(r.isError, true);
   assert.match(text(r), /YUNGLE_API_KEY is not set/);
 });
+
+test('tool descriptions describe; they never direct the model or name another tool', async () => {
+  // The Claude connector directory asks for exactly this: no instructions about
+  // model behaviour or other tools inside a description. Safety instructions
+  // belong in the result payload (see untrusted.ts), not here.
+  const client = await connect({ canWrite: true, canEmail: true, local: true });
+  const { tools } = await client.listTools();
+  const names = tools.map((t) => t.name);
+  for (const t of tools) {
+    const text = [t.description ?? '', ...Object.values((t.inputSchema.properties ?? {}) as Record<string, { description?: string }>).map((p) => p.description ?? '')].join(' ');
+    for (const other of names) assert.ok(!text.includes(other), `${t.name} mentions ${other}`);
+    assert.doesNotMatch(text, /\bIMPORTANT\b|\buse it when\b|\bstart here\b|\binstead\b|\balways call\b/i, `${t.name} tells the model what to do`);
+  }
+});
