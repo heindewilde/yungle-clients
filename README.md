@@ -8,6 +8,7 @@ file transfer. It's an alternative to WeTransfer for files that need to stay in 
 | [`yungle-cli`](apps/cli) | `npm i -g yungle-cli` | Send and sync files from your terminal or CI, resumably |
 | [`yungle-mcp`](packages/mcp-server) | `npx -y yungle-mcp` | Let an AI assistant (Claude, Cursor, Windsurf) read your transfers |
 | [`yungle-client`](packages/api-client) | `npm i yungle-client` | Typed, dependency-free SDK for the API |
+| [`yungle`](python) (Python) | `pip install yungle` | The API from Python, with a one-call `send()` |
 
 Every account can use the API: transfers and contacts work on the free plan, and
 collections need a paid one. The first 10 GB of API uploads each month are free.
