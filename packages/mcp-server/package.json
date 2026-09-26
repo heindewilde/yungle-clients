@@ -44,7 +44,7 @@
     "yungle"
   ],
   "license": "MIT",
-  "author": "Hein de Wilde",
+  "author": "Brainpower <hello@yungle.co> (https://yungle.co)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/heindewilde/yungle-clients.git"

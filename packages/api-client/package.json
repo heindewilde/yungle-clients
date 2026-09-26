@@ -24,7 +24,7 @@
   },
   "description": "Typed client for the Yungle API — send file transfers, build collections and sync contacts from Node.",
   "license": "MIT",
-  "author": "Hein de Wilde",
+  "author": "Brainpower <hello@yungle.co> (https://yungle.co)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/heindewilde/yungle-clients.git"
