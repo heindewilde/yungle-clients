@@ -1,5 +1,11 @@
 # yungle-client
 
+## 0.2.1
+
+### Patch Changes
+
+- [`4b48867`](https://github.com/heindewilde/yungle-clients/commit/4b488674b688596cedd74f254258d45b1f80fe96) Thanks [@heindewilde](https://github.com/heindewilde)! - Yungle no longer records whether a recipient opened a transfer page — only whether they downloaded it. `yungle status` and the MCP `get_transfer` description no longer mention opens, and `RecipientStatus.opened` is deprecated (the API now always returns `false`).
+
 ## 0.2.0
 
 ### Minor Changes
