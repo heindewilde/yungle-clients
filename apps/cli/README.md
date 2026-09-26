@@ -6,7 +6,7 @@ or CI. Resumable uploads up to 100 GB, private and EU-hosted.
 <img src="https://raw.githubusercontent.com/heindewilde/yungle-clients/main/.github/assets/demo.svg" alt="yungle send, yungle status and yungle get in a terminal" width="720">
 
 ```bash
-npm install -g yungle-cli
+npm install -g yungle-cli    # or: brew install heindewilde/yungle/yungle
 yungle login                  # opens your browser, once
 yungle send ~/Shoot           # uploads resumably, prints the link
 ```

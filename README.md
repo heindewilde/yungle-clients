@@ -37,7 +37,7 @@ sign-in code can't be used to mail strangers.
 
 | | Install | What it's for |
 |---|---|---|
-| **[CLI](apps/cli)** | `npm i -g yungle-cli` | Send, receive and sync files from a terminal or CI. Resumes after a dropped connection or a closed lid |
+| **[CLI](apps/cli)** | `npm i -g yungle-cli`<br>`brew install heindewilde/yungle/yungle` | Send, receive and sync files from a terminal or CI. Resumes after a dropped connection or a closed lid |
 | **[MCP server](packages/mcp-server)** | `https://yungle.co/mcp` | Connect Claude, Cursor or any MCP client with one sign-in: ask what arrived, share files, approve every send |
 | **[TypeScript SDK](packages/api-client)** | `npm i yungle-client` | The whole API, typed and dependency-free. Node, Bun, Deno, edge runtimes |
 | **[Python SDK](python)** | `pip install yungle` | The API from Python, with a one-call `send()` that handles the upload |
