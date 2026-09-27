@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { YungleApiError, YungleClient } from './index';
+import { YungleApiError, YungleClient, parseRetryAfter } from './index';
 
 /**
  * The published contract of `yungle-client`.
@@ -19,7 +19,7 @@ import { YungleApiError, YungleClient } from './index';
  */
 
 /** A fetch stub that records what it was called with and replies as told. */
-function stubFetch(reply: { status?: number; body?: unknown; json?: boolean } = {}) {
+function stubFetch(reply: { status?: number; body?: unknown; json?: boolean; headers?: Record<string, string> } = {}) {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   /** The nth call, asserting it happened — so "never called" fails as itself. */
   const call = (n = 0) => {
@@ -33,7 +33,7 @@ function stubFetch(reply: { status?: number; body?: unknown; json?: boolean } = 
     const payload = reply.json === false ? 'not json at all' : JSON.stringify(reply.body ?? {});
     return new Response(payload, {
       status,
-      headers: { 'content-type': reply.json === false ? 'text/html' : 'application/json' },
+      headers: { 'content-type': reply.json === false ? 'text/html' : 'application/json', ...reply.headers },
     });
   }) as unknown as typeof globalThis.fetch;
   return { fn, calls, call };
@@ -200,4 +200,49 @@ test('verifyWebhook accepts a genuine signature and rejects tampering, the wrong
   assert.equal(await verifyWebhook(body, header, 'whsec_other', at), false);
   assert.equal(await verifyWebhook(body, header, secret, { now: (t + 400) * 1000 }), false);
   assert.equal(await verifyWebhook(body, 'garbage', secret, at), false);
+});
+
+test('error.docs is carried through, and absent when an older server sends none', async () => {
+  const docs = 'https://yungle.co/developers/errors#quota_exceeded';
+  const withDocs = stubFetch({ status: 413, body: { error: { code: 'quota_exceeded', message: 'Full.', docs } } });
+  const err = (await new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: withDocs.fn, maxRetries: 0 })
+    .me()
+    .catch((e: unknown) => e)) as YungleApiError;
+  assert.equal(err.docs, docs);
+
+  const without = stubFetch({ status: 413, body: { error: { code: 'quota_exceeded', message: 'Full.' } } });
+  const old = (await new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: without.fn, maxRetries: 0 })
+    .me()
+    .catch((e: unknown) => e)) as YungleApiError;
+  assert.equal(old.docs, undefined);
+});
+
+test('a Retry-After header counts when the body states no wait — the monthly-allowance 429', async () => {
+  // That 429 carries `details: { limit }` and `Retry-After: 3600`. Reading the
+  // body alone made clients retry in half a second.
+  const { fn } = stubFetch({
+    status: 429,
+    body: { error: { code: 'rate_limited', message: 'Monthly allowance used.', details: { limit: 10000 } } },
+    headers: { 'retry-after': '3600' },
+  });
+  const err = (await new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn, maxRetries: 0 })
+    .me()
+    .catch((e: unknown) => e)) as YungleApiError;
+  assert.equal(err.retryAfterSeconds, 3600);
+});
+
+test('the body wins over the header when both state a wait', () => {
+  const err = new YungleApiError(429, 'rate_limited', 'm', { retryAfterSeconds: 12 }, { retryAfterHeader: 60 });
+  assert.equal(err.retryAfterSeconds, 12);
+});
+
+test('parseRetryAfter reads delay-seconds and HTTP-dates, and nothing else', () => {
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  assert.equal(parseRetryAfter('120', now), 120);
+  assert.equal(parseRetryAfter(' 0 ', now), 0);
+  assert.equal(parseRetryAfter('Sun, 27 Sep 2026 12:01:30 GMT', now), 90);
+  assert.equal(parseRetryAfter('Sun, 27 Sep 2026 11:00:00 GMT', now), null, 'a date already past');
+  assert.equal(parseRetryAfter('-5', now), null);
+  assert.equal(parseRetryAfter('soon', now), null);
+  assert.equal(parseRetryAfter(null, now), null);
 });

@@ -51,6 +51,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with: { node-version: 22, cache: pnpm }
+      # The type contract reads types.ts through the TypeScript checker.
+      - run: pnpm install --frozen-lockfile
       - run: node scripts/contract.mjs
+      - run: node scripts/contract-types.mjs

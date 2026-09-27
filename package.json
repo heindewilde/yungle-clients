@@ -12,7 +12,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
-    "contract": "node scripts/contract.mjs",
+    "contract": "node scripts/contract.mjs && node scripts/contract-types.mjs",
     "changeset": "changeset",
     "release": "pnpm -r build && changeset publish",
     "version": "changeset version && node scripts/sync-server-json.mjs && pnpm install --lockfile-only"

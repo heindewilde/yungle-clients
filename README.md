@@ -146,7 +146,7 @@ derived in your browser and never sent to Yungle, so no API can read them. See
 ```bash
 pnpm install
 pnpm typecheck && pnpm lint && pnpm test && pnpm build
-pnpm contract   # check the clients against the live OpenAPI spec
+pnpm contract   # check the clients (operations and types) against the live OpenAPI spec
 ```
 
 This repository is where the clients are developed; the Yungle service itself is not open

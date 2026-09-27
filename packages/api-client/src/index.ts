@@ -41,6 +41,15 @@ export interface YungleErrorBody {
   code: string;
   message: string;
   details?: Record<string, unknown>;
+  /** A link to the explanation of `code` and what to do about it. */
+  docs?: string;
+}
+
+export interface YungleApiErrorExtras {
+  /** `error.docs` from the body: where `code` is explained. */
+  docs?: string;
+  /** The `Retry-After` header, in seconds, when the server sent one. */
+  retryAfterHeader?: number;
 }
 
 /**
@@ -48,14 +57,21 @@ export interface YungleErrorBody {
  * on `message`, which is written for a human reading a log and may change.
  */
 export class YungleApiError extends Error {
+  /** Where `code` is explained, with what to do about it. Absent on older servers. */
+  readonly docs?: string;
+  private readonly retryAfterHeader?: number;
+
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
     readonly details?: Record<string, unknown>,
+    extras: YungleApiErrorExtras = {},
   ) {
     super(message);
     this.name = 'YungleApiError';
+    if (extras.docs !== undefined) this.docs = extras.docs;
+    if (extras.retryAfterHeader !== undefined) this.retryAfterHeader = extras.retryAfterHeader;
   }
 
   /** Worth trying again: throttled, or our fault. */
@@ -63,10 +79,18 @@ export class YungleApiError extends Error {
     return this.status === 429 || this.status >= 500;
   }
 
-  /** Seconds to wait, when the server said. */
+  /**
+   * Seconds to wait, when the server said — in the body's
+   * `details.retryAfterSeconds` or, failing that, the `Retry-After` header.
+   *
+   * The header matters on its own: the monthly-allowance 429 states its wait
+   * (an hour) only there, and reading the body alone sent clients back in half
+   * a second to be refused again.
+   */
   get retryAfterSeconds(): number | null {
     const value = this.details?.retryAfterSeconds;
-    return typeof value === 'number' ? value : null;
+    if (typeof value === 'number') return value;
+    return this.retryAfterHeader ?? null;
   }
 }
 
@@ -441,12 +465,31 @@ async function toError(res: Response): Promise<YungleApiError> {
     // proxy, a load balancer, an outage page. Still worth surfacing as one.
   }
   const err = body?.error;
+  const retryAfterHeader = parseRetryAfter(res.headers.get('retry-after'));
   return new YungleApiError(
     res.status,
     err?.code ?? 'http_error',
     err?.message ?? `Request failed with status ${res.status}.`,
     err?.details,
+    {
+      ...(typeof err?.docs === 'string' ? { docs: err.docs } : {}),
+      ...(retryAfterHeader === null ? {} : { retryAfterHeader }),
+    },
   );
+}
+
+/**
+ * `Retry-After` is delay-seconds or an HTTP-date (RFC 9110 §10.2.3). Anything
+ * else — including a negative number or a date already past — is no statement.
+ */
+export function parseRetryAfter(value: string | null, now: number = Date.now()): number | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return null;
+  const seconds = Math.ceil((at - now) / 1000);
+  return seconds >= 0 ? seconds : null;
 }
 
 /**

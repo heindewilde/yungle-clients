@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 import httpx
 
-from .errors import YungleError
+from .errors import YungleError, parse_retry_after
 from .upload import upload_file
 
 DEFAULT_BASE = "https://yungle.co/api/v1"
@@ -304,11 +304,14 @@ def _to_error(res: httpx.Response) -> YungleError:
         body = res.json().get("error") or {}
     except Exception:
         body = {}
+    docs = body.get("docs")
     return YungleError(
         res.status_code,
         body.get("code", "http_error"),
         body.get("message", f"Request failed with status {res.status_code}."),
         body.get("details"),
+        docs=docs if isinstance(docs, str) else None,
+        retry_after_header=parse_retry_after(res.headers.get("retry-after")),
     )
 
 
