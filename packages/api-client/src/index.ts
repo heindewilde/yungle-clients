@@ -9,6 +9,7 @@ import type {
   Folder,
   Guest,
   Me,
+  PulledWebhookEvent,
   RecipientStatus,
   Transfer,
   TransferFile,
@@ -16,7 +17,6 @@ import type {
   UploadTargets,
   WebhookDelivery,
   WebhookEndpoint,
-  WebhookEvent,
   WebhookEventType,
 } from './types';
 
@@ -350,7 +350,7 @@ export class YungleClient {
   listWebhookEvents(
     id: string,
     page: PageOptions = {},
-  ): Promise<{ events: (WebhookEvent & { deliveryId: string })[]; nextCursor: string | null; hasMore: boolean }> {
+  ): Promise<{ events: PulledWebhookEvent[]; nextCursor: string | null; hasMore: boolean }> {
     return this.request('GET', `/webhooks/${enc(id)}/events${pageQuery(page)}`);
   }
 

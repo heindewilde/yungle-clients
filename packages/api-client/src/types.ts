@@ -87,8 +87,9 @@ export interface Transfer {
   maxDownloads: number | null;
   /** Null while it is still a draft. A draft is not shareable. */
   finalizedAt: Iso8601 | null;
-  expiresAt: Iso8601 | null;
-  createdAt: Iso8601 | null;
+  /** Every transfer expires; a paid plan chooses when. */
+  expiresAt: Iso8601;
+  createdAt: Iso8601;
 }
 
 export interface TransferSummary extends Omit<Transfer, 'hasPassword' | 'fileCount'> {
@@ -150,8 +151,8 @@ export interface Collection {
   sizeBytes: number;
   coverFileId: string | null;
   expiresAt: Iso8601 | null;
-  createdAt: Iso8601 | null;
-  updatedAt: Iso8601 | null;
+  createdAt: Iso8601;
+  updatedAt: Iso8601;
   fileCount?: number;
 }
 
@@ -163,7 +164,7 @@ export interface CollectionSummary {
   fileCount: number;
   sizeBytes: number;
   coverFileId: string | null;
-  updatedAt: Iso8601 | null;
+  updatedAt: Iso8601;
 }
 
 export interface CollectionFile {
@@ -173,7 +174,7 @@ export interface CollectionFile {
   mimeType: string;
   folderId: string | null;
   hasThumbnail: boolean;
-  createdAt: Iso8601 | null;
+  createdAt: Iso8601;
 }
 
 export interface Folder {
@@ -199,8 +200,8 @@ export interface Contact {
   email: string;
   phone: string | null;
   type: string;
-  createdAt: Iso8601 | null;
-  updatedAt: Iso8601 | null;
+  createdAt: Iso8601;
+  updatedAt: Iso8601;
 }
 
 export interface ContactInput {
@@ -255,3 +256,9 @@ export interface WebhookEvent<T = Record<string, unknown>> {
   createdAt: Iso8601;
   data: T;
 }
+
+/** An event read from `/webhooks/{id}/events`: the push payload plus the cursor to resume from. */
+export type PulledWebhookEvent<T = Record<string, unknown>> = WebhookEvent<T> & {
+  /** Pass the last one back as `cursor`. */
+  deliveryId: string;
+};
