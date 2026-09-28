@@ -29,7 +29,14 @@ collections on a paid one. The first 10 GB of API uploads each month are free.
   POST carries an `Idempotency-Key`, so a retried create never makes a second copy.
 - **Errors** raise `YungleError`; branch on `err.code`.
 - **Uploads** go through `upload_file(tus_endpoint, target, path)`, a small tus client that
-  resumes from the server's last committed part.
+  resumes from the server's last committed part and renews its two-hour token as it runs.
+- **Imports**: `yungle.send(urls=["https://…/render.mov"])` has Yungle fetch files that are
+  already online, so they never pass through your process.
+- **Downloads**: `yungle.download("https://yungle.co/t/…", "incoming/")` saves a shared link
+  (or links from `transfer_download_links` / `collection_download_links`) resumably, keeping
+  folders and verifying each file's CRC-32.
+- **Upload requests**: `create_request(collection_id, title)` makes a public upload page;
+  `list_requests`, `get_request`, `set_request_status` manage them.
 
 **Webhooks.** Check a delivery against the raw request body before trusting it:
 
