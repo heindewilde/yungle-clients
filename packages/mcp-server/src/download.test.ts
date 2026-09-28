@@ -51,3 +51,18 @@ test('files land in their folders, resume a partial, and are skipped when alread
   assert.ok(again.every((s) => s.skipped));
   assert.equal(ranges.length, 0);
 });
+
+test('a file whose checksum does not match is deleted, not kept under its name', async () => {
+  const { crc32 } = await import('node:zlib');
+  const dir = await mkdtemp(join(tmpdir(), 'yungle-mcp-crc-'));
+  const data = new TextEncoder().encode('payload');
+  const fakeFetch = (async () => new Response(data)) as typeof fetch;
+  const base = { kind: 'transfer', title: null, message: null, expiresAt: null, e2ee: false, complete: true, zipUrl: null, urlsExpireAt: '' } as const;
+  const good = crc32(data).toString(16).padStart(8, '0');
+  await saveLinks({ ...base, files: [{ id: '1', name: 'ok.txt', size: data.length, mimeType: 'x', path: '', downloadUrl: 'http://h/1', crc32: good }] }, dir, fakeFetch);
+  await assert.rejects(
+    saveLinks({ ...base, files: [{ id: '2', name: 'bad.txt', size: data.length, mimeType: 'x', path: '', downloadUrl: 'http://h/2', crc32: 'deadbeef' }] }, dir, fakeFetch),
+    /damaged/,
+  );
+  assert.deepEqual((await readdir(dir)).sort(), ['ok.txt']);
+});

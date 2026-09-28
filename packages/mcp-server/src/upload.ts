@@ -1,19 +1,15 @@
-import { open } from 'node:fs/promises';
+import { openAsBlob } from 'node:fs';
+import { lstat, readdir } from 'node:fs/promises';
+import { basename, dirname, join, relative } from 'node:path';
+import type { YungleClient } from 'yungle-client';
 
 /**
- * Just enough tus to put bytes behind an upload target, with nothing but fetch.
- *
- * The server commits in parts and answers each PATCH with the last committed
- * boundary, which can be short of what was sent, so the loop always resumes
- * from the offset it is given. A chunk smaller than a part never moves that
- * boundary, hence the floor on the chunk size.
+ * Putting bytes behind upload targets, through the SDK's `uploadFile`:
+ * resumable at part granularity, retried with a HEAD after a drop, and with the
+ * two-hour upload token renewed for as long as it runs. The hand-written loop
+ * this replaces had none of the three, so a local share of a big file failed on
+ * the first network blip, or at the two-hour mark regardless.
  */
-
-const MiB = 1024 * 1024;
-
-export function chunkSize(size: number): number {
-  return Math.max(64 * MiB, (Math.floor(size / (9000 * MiB)) + 2) * MiB);
-}
 
 export interface Target {
   id: string;
@@ -21,63 +17,57 @@ export interface Target {
   uploadToken: string;
 }
 
-type Reader = (offset: number, length: number) => Promise<Uint8Array>;
+export function uploadBytes(client: YungleClient, endpoint: string, target: Target, bytes: Uint8Array): Promise<unknown> {
+  return client.uploadFile(endpoint, target, new Blob([bytes as unknown as ArrayBuffer]));
+}
 
-const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
+export async function uploadPath(
+  client: YungleClient,
+  endpoint: string,
+  target: Target,
+  path: string,
+  onProgress?: (sent: number) => void,
+): Promise<unknown> {
+  // A file-backed Blob: sliced per PATCH, read from disk as it is sent.
+  return client.uploadFile(endpoint, target, await openAsBlob(path), { onProgress: (sent) => onProgress?.(sent) });
+}
 
-async function tusUpload(endpoint: string, target: Target, size: number, read: Reader, doFetch: typeof fetch): Promise<void> {
-  const auth = { 'Tus-Resumable': '1.0.0', 'x-yungle-upload-token': target.uploadToken };
-  const created = await doFetch(endpoint, {
-    method: 'POST',
-    headers: {
-      ...auth,
-      'Upload-Length': String(size),
-      'Upload-Metadata': `fileId ${b64(target.id)},token ${b64(target.uploadToken)},filename ${b64(target.name)}`,
-    },
-  });
-  if (!created.ok) throw new Error(`Upload of ${target.name} could not start (HTTP ${created.status}).`);
-  const url = new URL(created.headers.get('location') ?? '', endpoint).toString();
+export interface LocalFile {
+  path: string;
+  size: number;
+  /** Folder path to recreate, relative to what was shared; `''` for a loose file. */
+  dir: string;
+}
 
-  let offset = 0;
-  let stalls = 0;
-  const step = chunkSize(size);
-  while (offset < size) {
-    const body = await read(offset, Math.min(step, size - offset));
-    const res = await doFetch(url, {
-      method: 'PATCH',
-      headers: { ...auth, 'Upload-Offset': String(offset), 'Content-Type': 'application/offset+octet-stream' },
-      // A Uint8Array is a valid body at runtime; the cast is for DOM typings
-      // that only accept ArrayBuffer-backed views.
-      body: body as unknown as NonNullable<RequestInit["body"]>,
-    });
-    if (!res.ok) throw new Error(`Upload of ${target.name} failed (HTTP ${res.status}).`);
-    const next = Number(res.headers.get('upload-offset'));
-    if (!(next > offset)) {
-      if (++stalls > 3) throw new Error(`Upload of ${target.name} made no progress.`);
-    } else stalls = 0;
-    offset = next;
+const isHiddenName = (name: string) => name.startsWith('.');
+
+/**
+ * Expand files and folders into files. Inside a folder, hidden entries are
+ * skipped and symbolic links are not followed — a link inside a shared folder
+ * pointing at `~/.ssh` must not come along. At most `max` files.
+ */
+export async function expandPaths(paths: string[], max = 500): Promise<LocalFile[]> {
+  const out: LocalFile[] = [];
+  const walk = async (root: string, dir: string) => {
+    for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (isHiddenName(entry.name) || entry.isSymbolicLink()) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(root, full);
+      else if (entry.isFile()) {
+        if (out.length >= max) throw new Error(`More than ${max} files; share fewer at once.`);
+        out.push({ path: full, size: (await lstat(full)).size, dir: relative(dirname(root), dir) });
+      }
+    }
+  };
+  for (const p of paths) {
+    const st = await lstat(p);
+    if (st.isDirectory()) await walk(p, p);
+    else if (st.isFile()) {
+      if (out.length >= max) throw new Error(`More than ${max} files; share fewer at once.`);
+      out.push({ path: p, size: st.size, dir: '' });
+    }
   }
+  return out;
 }
 
-export function uploadBytes(endpoint: string, target: Target, bytes: Uint8Array, doFetch: typeof fetch = fetch): Promise<void> {
-  return tusUpload(endpoint, target, bytes.byteLength, async (o, n) => bytes.subarray(o, o + n), doFetch);
-}
-
-export async function uploadPath(endpoint: string, target: Target, path: string, size: number, doFetch: typeof fetch = fetch): Promise<void> {
-  const handle = await open(path, 'r');
-  try {
-    await tusUpload(
-      endpoint,
-      target,
-      size,
-      async (o, n) => {
-        const buf = Buffer.alloc(n);
-        const { bytesRead } = await handle.read(buf, 0, n, o);
-        return buf.subarray(0, bytesRead);
-      },
-      doFetch,
-    );
-  } finally {
-    await handle.close();
-  }
-}
+export { basename };

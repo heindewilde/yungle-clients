@@ -44,3 +44,20 @@ def test_downloads_keep_folders_resume_and_skip(tmp_path):
     calls.clear()
     download_links(links, str(tmp_path), http=client)
     assert calls == [], "a second run skips files already whole"
+
+
+def test_a_damaged_download_is_deleted(tmp_path):
+    import zlib
+
+    data = b"payload"
+    client = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, content=data)))
+    good = f"{zlib.crc32(data):08x}"
+    ok_links = {"files": [{"name": "a", "size": len(data), "downloadUrl": "http://h/a", "crc32": good}]}
+    assert download_links(ok_links, str(tmp_path / "ok"), http=client)
+    bad_links = {"files": [{"name": "a", "size": len(data), "downloadUrl": "http://h/a", "crc32": "00000000"}]}
+    try:
+        download_links(bad_links, str(tmp_path / "bad"), http=client)
+        raise AssertionError("expected a checksum error")
+    except ValueError as err:
+        assert "damaged" in str(err)
+    assert not (tmp_path / "bad" / "a").exists()

@@ -44,6 +44,7 @@ const VALUE_FLAGS = new Set([
   'forward-to',
   'interval',
   'from-url',
+  'target',
 ]);
 
 /**

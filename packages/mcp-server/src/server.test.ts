@@ -51,7 +51,7 @@ function stubClient(): YungleClient {
     createTransfer: async (input: { imports?: { url: string }[] }) => ({
       transfer: { id: 't1', slug: 's', expiresAt: '2026-01-01T00:00:00.000Z', maxBytes: 1 },
       tusEndpoint: 'https://example.test/files',
-      files: [],
+      files: ((input as { files?: { name: string; size: number }[] }).files ?? []).map((f, n) => ({ id: `f${n}`, name: f.name, size: f.size, uploadToken: 'tok' })),
       imports: (input.imports ?? []).map((i, n) => ({ fileId: `imp${n}`, name: 'render.mov', size: 5, source: new URL(i.url).host, status: 'queued' })),
     }),
   };
@@ -361,4 +361,31 @@ test('share_from_urls: a write, never an email, and the link is live at once', a
   assert.deepEqual(finalized[0]?.input, {}, 'finalized with no recipients');
   const st = await client.callTool({ name: 'get_import_status', arguments: { fileIds: ['imp0'] } });
   assert.equal(JSON.parse(text(st)).data.imports[0].status, 'importing');
+});
+
+test('create_transfer hands out one keyless, shell-safe upload command per file', async () => {
+  const { shellQuote } = await import('./server');
+  assert.equal(shellQuote('./a.mov'), './a.mov');
+  assert.equal(shellQuote("/Users/me/It's final.mov"), `'/Users/me/It'\\''s final.mov'`);
+  const client = await connect({ canWrite: true, canEmail: false, local: false });
+  // The stub's createTransfer returns no files; give it one for this test.
+  const res = await client.callTool({
+    name: 'create_transfer',
+    arguments: { files: [{ name: 'a.mov', size: 5, localPath: '/tmp/My Film.mov' }] },
+  });
+  const body = JSON.parse(text(res));
+  assert.equal(body.status, 'draft — nothing uploaded yet, nobody emailed');
+  assert.ok(Array.isArray(body.uploadCommands));
+  const fin = await client.callTool({ name: 'finalize_transfer', arguments: { transferId: 't1' } });
+  assert.equal(JSON.parse(text(fin)).emailed, 'nobody');
+  assert.deepEqual(finalized[0]?.input, {}, 'finalize sends no recipients');
+});
+
+test('the upload command carries the target, and the local path quoted', async () => {
+  const client = await connect({ canWrite: true, canEmail: false, local: false });
+  const res = await client.callTool({ name: 'create_transfer', arguments: { files: [{ name: 'a.mov', size: 5, localPath: '/tmp/My Film.mov' }] } });
+  const cmd = JSON.parse(text(res)).uploadCommands[0].command as string;
+  assert.match(cmd, /^npx -y yungle-cli@latest put '\/tmp\/My Film\.mov' --target [A-Za-z0-9_-]+$/);
+  const blob = cmd.split('--target ')[1]!;
+  assert.deepEqual(JSON.parse(Buffer.from(blob, 'base64url').toString()), { e: 'https://example.test/files', i: 'f0', t: 'tok', n: 'a.mov', s: 5 });
 });

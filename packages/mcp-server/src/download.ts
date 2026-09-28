@@ -1,5 +1,6 @@
-import { createWriteStream } from 'node:fs';
-import { mkdir, rename, stat } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir, rename, stat, unlink } from 'node:fs/promises';
+import { crc32 } from 'node:zlib';
 import { dirname, join, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -59,9 +60,20 @@ export async function saveLinks(links: DownloadLinks, destination: string, doFet
       continue;
     }
     await fetchTo(f.downloadUrl, dest, f.size, doFetch);
+    // A resumed download is two requests stitched together; the checksum says the seam is right.
+    if (f.crc32 && (await fileCrc32(dest)) !== f.crc32) {
+      await unlink(dest).catch(() => undefined);
+      throw new Error(`${rel} arrived damaged (checksum mismatch) and was deleted; download again.`);
+    }
     out.push({ path: dest, bytes: f.size, skipped: false });
   }
   return out;
+}
+
+async function fileCrc32(path: string): Promise<string> {
+  let value = 0;
+  for await (const chunk of createReadStream(path, { highWaterMark: 4 * 1024 * 1024 })) value = crc32(chunk as Buffer, value);
+  return value.toString(16).padStart(8, '0');
 }
 
 async function fetchTo(url: string, dest: string, size: number, doFetch: typeof fetch): Promise<void> {

@@ -318,6 +318,8 @@ export interface DownloadLink {
   /** A signed GET that needs no key. Supports `Range`. Valid until `urlsExpireAt`. */
   downloadUrl: string;
   e2eeMeta?: string | null;
+  /** CRC-32 of the bytes (IEEE, as `zlib.crc32`), 8 hex digits. Null while unknown. */
+  crc32?: string | null;
 }
 
 /**

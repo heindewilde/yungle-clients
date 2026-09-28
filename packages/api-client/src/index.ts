@@ -24,6 +24,8 @@ import type {
 } from './types';
 
 import { renewUploadToken as renewAt, type RenewOutcome as Renewal } from './upload-token';
+import { uploadFile as uploadWith, type UploadFileOptions } from './upload';
+export { chunkSize, uploadFile, UploadError, type UploadFileOptions } from './upload';
 
 export * from './types';
 export {
@@ -45,8 +47,8 @@ export {
  * the wire format, so neither can drift from the other.
  *
  * `createTransfer` and `addCollectionFiles` return a tus endpoint and
- * per-file tokens. `createTokenKeeper` + `renewUploadToken` keep a token alive
- * past its two hours, which any upload longer than that needs.
+ * per-file tokens; `client.uploadFile` streams a `Blob` to one, resumably,
+ * renewing its two-hour token as it goes.
  */
 
 export interface YungleErrorBody {
@@ -175,6 +177,20 @@ export class YungleClient {
    */
   renewUploadToken(token: string): Promise<Renewal> {
     return renewAt(this.origin, token, this.doFetch);
+  }
+
+  /**
+   * Upload one file to a target from `createTransfer` / `addTransferFiles` /
+   * `addCollectionFiles`: resumable, retried, and with its token renewed for
+   * as long as it runs. In Node, pass `await fs.openAsBlob(path)` as `source`.
+   */
+  uploadFile(
+    tusEndpoint: string,
+    target: { id: string; name: string; uploadToken: string },
+    source: Blob,
+    opts: Omit<UploadFileOptions, 'endpoint' | 'target' | 'source' | 'renew' | 'fetch'> = {},
+  ): Promise<{ uploadUrl: string }> {
+    return uploadWith({ ...opts, endpoint: tusEndpoint, target, source, renew: (t) => this.renewUploadToken(t), fetch: this.doFetch });
   }
 
   // ── Account ───────────────────────────────────────────────────────────────

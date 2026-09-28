@@ -1,5 +1,5 @@
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { YungleClient, type Me, type TransferSummary } from 'yungle-client';
+import { renewUploadToken, YungleClient, type Me, type TransferSummary } from 'yungle-client';
 import { listFlag, urlListFlag, numberFlag, parseArgs, stringFlag } from './args';
 import { completionScript } from './completion';
 import {
@@ -17,8 +17,9 @@ import {
 } from './config';
 import { CliError, NotSignedIn, suggest } from './errors';
 import { collectFiles, pairWithTargets, toFileInputs, type LocalFile } from './files';
-import { stat } from 'node:fs/promises';
-import { dedupePaths, downloadTo, fetchManifest, ManifestError, parseTransferLink, safeFileName, safeRelativeDir, type Manifest } from './get';
+import { stat, unlink } from 'node:fs/promises';
+import { unpackTarget } from './target';
+import { dedupePaths, downloadTo, fetchManifest, fileCrc32, ManifestError, parseTransferLink, safeFileName, safeRelativeDir, type Manifest } from './get';
 import { askKey, askLink, askPassword, askSend, confirm, pick } from './guided';
 import { COMMANDS, commandHelp, HELP, renderHelp, resolveAlias } from './help';
 import { cursorAtNow, describeEvent, ensureListenEndpoint, signForForward } from './listen';
@@ -104,6 +105,8 @@ export async function main(argvIn: string[]): Promise<number> {
         return await get(positionals, flags, json);
       case 'pull':
         return await pull(flags, json);
+      case 'put':
+        return await put(positionals, flags, json);
       case 'status':
         return await status(positionals, flags, json);
       case 'transfers':
@@ -327,6 +330,43 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
 }
 
 /**
+ * `yungle put <path> --target <blob>` — upload one file to a target someone
+ * else created (the MCP server's `create_transfer`). No key: the target's
+ * token is the credential, for that file only. Resumable like `send` — the
+ * upload URL is saved, so running the same command again continues — and the
+ * token is renewed as it goes.
+ */
+async function put(positionals: string[], flags: Flags, json: boolean): Promise<number> {
+  const blob = stringFlag(flags.target);
+  const path = positionals[0];
+  if (!blob || !path) throw new CliError('Put what, where?', 'yungle put <file> --target <target>', 'usage', 2);
+  let target;
+  try {
+    target = unpackTarget(blob);
+  } catch (err) {
+    throw new CliError((err as Error).message, undefined, 'usage', 2);
+  }
+  const abs = resolve(path);
+  const size = await stat(abs).then((s) => (s.isFile() ? s.size : -1), () => -2);
+  if (size === -2) throw new CliError(`No such file: ${abs}`, undefined, 'not_found');
+  if (size === -1) throw new CliError(`${abs} is not a file.`, undefined, 'usage', 2);
+  if (size !== target.s) {
+    throw new CliError(`${abs} is ${formatBytes(size)}; this target was made for ${formatBytes(target.s)}.`, 'Use the file the target was created for.', 'size_mismatch');
+  }
+  heading(`Uploading ${target.n} ${sym.dot} ${formatBytes(size)}`);
+  const origin = new URL(target.e).origin;
+  const started = Date.now();
+  await uploadAll(
+    [{ path: abs, target: { id: target.i, name: target.n, size: target.s, uploadToken: target.t } }],
+    target.e,
+    (p) => drawProgress(progressLine(p.sent, p.total, started, p.resumed ? 'resumed' : '')),
+    { renew: (t) => renewUploadToken(origin, t) },
+  );
+  endProgress();
+  return out(json, { uploaded: target.n, fileId: target.i, bytes: size }, success(`Uploaded ${target.n}`), target.i);
+}
+
+/**
  * Wait for URL imports to land, with one progress line over all of them. A
  * failed import is an error naming the file and the reason — nothing is
  * finalized (or emailed) with a file missing.
@@ -499,7 +539,7 @@ async function saveManifest(
   const relPaths = dedupePaths(manifest.files.map((f) => ({ dir: safeRelativeDir(f.path), name: safeFileName(f.name) })));
   const jobs = useZip
     ? [{ url: manifest.zipUrl!, rel: opts.zipName, size: null as number | null }]
-    : relPaths.map((rel, i) => ({ url: manifest.files[i]!.downloadUrl, rel, size: manifest.files[i]!.size as number | null }));
+    : relPaths.map((rel, i) => ({ url: manifest.files[i]!.downloadUrl, rel, size: manifest.files[i]!.size as number | null, crc32: manifest.files[i]!.crc32 ?? null }));
 
   const total = manifest.files.reduce((n, f) => n + f.size, 0);
   heading(`Downloading ${plural(manifest.files.length, 'file')} ${sym.dot} ${formatBytes(total)}`);
@@ -519,6 +559,17 @@ async function saveManifest(
       received += n;
       drawProgress(progressLine(Math.min(received, total), total, started, `${i + 1}/${jobs.length} files`));
     });
+    // A resumed download is two requests stitched together; the checksum is
+    // what says the seam is right. A mismatch deletes the file — a corrupt copy
+    // with the right name is worse than none — and the next run fetches it again.
+    const expected = 'crc32' in job ? job.crc32 : null;
+    if (expected) {
+      const actual = await fileCrc32(dest);
+      if (actual !== null && actual !== expected) {
+        await unlink(dest).catch(() => undefined);
+        throw new CliError(`${job.rel} arrived damaged (checksum ${actual}, expected ${expected}) and was deleted.`, 'Run the same command again to fetch it afresh.', 'checksum_mismatch');
+      }
+    }
     saved.push(dest);
   }
   endProgress();

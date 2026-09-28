@@ -27,6 +27,7 @@ Send and receive
     --out <dir>           where to save (default: current directory)
     --zip                 one zip instead of separate files
     --password <text>     for a protected link; asks if left out
+  yungle put <file> --target <target>     upload one file to a target an assistant prepared
   yungle status [<id|link>]               who downloaded a transfer
   yungle transfers                        list your recent transfers
   yungle revoke <id>                      stop a transfer's link for good
@@ -74,6 +75,7 @@ export const COMMANDS = [
   'logout',
   'send',
   'get',
+  'put',
   'status',
   'transfers',
   'revoke',

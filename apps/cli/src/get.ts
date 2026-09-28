@@ -1,4 +1,4 @@
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, rename, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -132,6 +132,8 @@ export interface ManifestFile {
   downloadUrl: string;
   /** Folder path; absent from servers before 2026-09-29. */
   path?: string;
+  /** CRC-32 of the bytes, 8 hex digits; null while unknown, absent on older servers. */
+  crc32?: string | null;
 }
 
 export interface Manifest {
@@ -176,6 +178,19 @@ export async function fetchManifest(
     throw new ManifestError(code, message);
   }
   return body;
+}
+
+/**
+ * CRC-32 of a file on disk, as the 8 hex digits the API reports — or null
+ * when this Node has no `zlib.crc32` (it arrived in 22.2).
+ */
+export async function fileCrc32(path: string): Promise<string | null> {
+  const zlib = await import('node:zlib');
+  const crc32 = (zlib as { crc32?: (data: Uint8Array, value?: number) => number }).crc32;
+  if (typeof crc32 !== 'function') return null;
+  let value = 0;
+  for await (const chunk of createReadStream(path, { highWaterMark: 4 * 1024 * 1024 })) value = crc32(chunk as Buffer, value);
+  return value.toString(16).padStart(8, '0');
 }
 
 /**

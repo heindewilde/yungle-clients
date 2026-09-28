@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import zlib
 from typing import Any, Callable, Optional
 
 import httpx
@@ -69,7 +70,19 @@ def download_links(
         if os.path.exists(dest) and os.path.getsize(dest) == size:
             continue
         _fetch(client, f["downloadUrl"], dest, size, lambda got: on_progress and on_progress(dest, got, size))
+        expected = f.get("crc32")
+        if expected and _crc32(dest) != expected:
+            os.remove(dest)
+            raise ValueError(f"{dest} arrived damaged (checksum mismatch) and was deleted; download again.")
     return written
+
+
+def _crc32(path: str) -> str:
+    value = 0
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(4 * 1024 * 1024), b""):
+            value = zlib.crc32(chunk, value)
+    return f"{value & 0xFFFFFFFF:08x}"
 
 
 def _fetch(client: httpx.Client, url: str, dest: str, size: int, progress: Callable[[int], Any]) -> None:
