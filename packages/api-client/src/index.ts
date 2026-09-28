@@ -162,7 +162,8 @@ export class YungleClient {
     expiresInDays?: number;
     /**
      * Encrypted by the client (`yungle-e2e`); the key travels only in the link's
-     * fragment. Such a transfer takes no title and cannot be emailed.
+     * fragment. Such a transfer takes no title and cannot be emailed. File
+     * `size`s are then ciphertext lengths, and names go in `sealTransferFile`.
      */
     e2ee?: boolean;
   }): Promise<{ transfer: { id: string; slug: string; expiresAt: string; maxBytes: number } } & UploadTargets> {
@@ -195,6 +196,15 @@ export class YungleClient {
     } = {},
   ): Promise<{ transfer: Transfer; notified: string[] }> {
     return this.request('POST', `/transfers/${enc(id)}/finalize`, input, { idempotent: true });
+  }
+
+  /**
+   * End-to-end encrypted transfers only: a file's sealed `{ name, path, size,
+   * type }` and/or thumbnail, from `yungle-e2e`. Called after the file exists,
+   * because each blob binds the file's id.
+   */
+  sealTransferFile(id: string, fileId: string, sealed: { meta?: string; thumb?: string }): Promise<{ stored: true }> {
+    return this.request('POST', `/transfers/${enc(id)}/files/${enc(fileId)}/sealed`, sealed, { idempotent: true });
   }
 
   addTransferFiles(id: string, files: FileInput[]): Promise<UploadTargets> {
