@@ -9,6 +9,7 @@ import {
   originOf,
   readConfig,
   resolveKey,
+  saveRenewedToken,
   saveSession,
   sessionKey,
   writeConfig,
@@ -279,7 +280,7 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
     await saveSession(key, { createdAt: Date.now(), kind: 'transfer', targetId: fresh.transfer.id, tusEndpoint: fresh.tusEndpoint, files: created.files });
   }
 
-  await streamAll(files, created);
+  await streamAll(files, created, api, key);
   // An upload can outlast a `yungle login` access token; refresh before the
   // call that makes the transfer live, not after it fails.
   const after = await freshClient(flags, api);
@@ -318,6 +319,9 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
 async function streamAll(
   files: LocalFile[],
   targets: { tusEndpoint: string; files: { id: string; name: string; size: number; uploadToken: string }[] },
+  api: YungleClient,
+  /** The resume session to record renewed tokens in; `watch` has none. */
+  resumeKey: string | null,
 ): Promise<void> {
   const paired = pairWithTargets(files, targets.files);
   const totalBytes = paired.reduce((n, { file }) => n + file.size, 0);
@@ -339,6 +343,12 @@ async function streamAll(
         if (p.resumed) resumed = true;
         sentPer.set(p.id, p.sent);
         if (p.sent >= p.total) finished.add(p.id);
+      },
+      {
+        renew: (t) => api.renewUploadToken(t),
+        onRenewed: (fileId, token) => {
+          if (resumeKey) void saveRenewedToken(resumeKey, fileId, token);
+        },
       },
     );
   } finally {
@@ -562,7 +572,7 @@ async function push(paths: string[], flags: Flags, json: boolean): Promise<numbe
     targets = { tusEndpoint: fresh.tusEndpoint, files: fresh.files.map((f, i) => ({ ...f, path: files[i]!.path })) };
     await saveSession(key, { createdAt: Date.now(), kind: 'collection', targetId: collectionId, tusEndpoint: fresh.tusEndpoint, files: targets.files });
   }
-  await streamAll(files, targets);
+  await streamAll(files, targets, api, key);
   await dropSession(key);
   const { collection } = await (await freshClient(flags, api)).getCollection(collectionId);
   return out(
@@ -600,8 +610,9 @@ async function watch(positionals: string[], flags: Flags, json: boolean): Promis
     const { ready, seen } = planTick(current, lastSeen, uploaded);
     lastSeen = seen;
     if (ready.length > 0) {
-      const target = await (await freshClient(flags, api)).addCollectionFiles(collectionId, toFileInputs(ready), stringFlag(flags.folder) ?? null);
-      await streamAll(ready, target);
+      const tickApi = await freshClient(flags, api);
+      const target = await tickApi.addCollectionFiles(collectionId, toFileInputs(ready), stringFlag(flags.folder) ?? null);
+      await streamAll(ready, target, tickApi, null);
       for (const f of ready) {
         uploaded.add(fingerprint(f));
         if (json) process.stdout.write(`${JSON.stringify({ uploaded: f.path, size: f.size })}\n`);

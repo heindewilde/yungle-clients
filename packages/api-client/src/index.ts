@@ -20,7 +20,18 @@ import type {
   WebhookEventType,
 } from './types';
 
+import { renewUploadToken as renewAt, type RenewOutcome as Renewal } from './upload-token';
+
 export * from './types';
+export {
+  createTokenKeeper,
+  renewDelayMs,
+  renewUploadToken,
+  tokenExpiry,
+  type RenewOutcome,
+  type TokenKeeper,
+  type TokenKeeperDeps,
+} from './upload-token';
 
 /**
  * A typed client for the Yungle API.
@@ -30,11 +41,9 @@ export * from './types';
  * are both thin layers over this — which is the point: one place understands
  * the wire format, so neither can drift from the other.
  *
- * It does **not** upload bytes. `createTransfer` and `addCollectionFiles`
- * return a tus endpoint and per-file tokens, and streaming to those is the
- * caller's job (`yungle-cli` does it with `tus-js-client`). Keeping the byte
- * pipeline out of here is what lets this stay a few hundred lines with no
- * dependencies.
+ * `createTransfer` and `addCollectionFiles` return a tus endpoint and
+ * per-file tokens. `createTokenKeeper` + `renewUploadToken` keep a token alive
+ * past its two hours, which any upload longer than that needs.
  */
 
 export interface YungleErrorBody {
@@ -148,6 +157,21 @@ export class YungleClient {
     this.doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.maxRetries = options.maxRetries ?? 3;
     this.userAgent = options.userAgent ?? `yungle-client/${CLIENT_VERSION}`;
+  }
+
+  /** The site root this client talks to (`https://yungle.co`), for the few endpoints outside `/api/v1`. */
+  get origin(): string {
+    return this.baseUrl.replace(/\/api\/v1$/, '');
+  }
+
+  /**
+   * Trade a still-valid upload token for a fresh one (two more hours). Returns
+   * `'final'` when the token is dead or the upload finished, `'retry'` on a
+   * transient failure. `createTokenKeeper(token, { renew: (t) => client.renewUploadToken(t) })`
+   * schedules this for you.
+   */
+  renewUploadToken(token: string): Promise<Renewal> {
+    return renewAt(this.origin, token, this.doFetch);
   }
 
   // ── Account ───────────────────────────────────────────────────────────────

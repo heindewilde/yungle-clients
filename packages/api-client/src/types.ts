@@ -66,6 +66,12 @@ export interface UploadTarget {
   name: string;
   size: number;
   uploadToken: string;
+  /**
+   * When `uploadToken` stops working (two hours after issue). Renew before then
+   * with `renewUploadToken` — or let `createTokenKeeper` do it — for any upload
+   * that may run longer. Absent from servers older than 2026-09-29.
+   */
+  uploadTokenExpiresAt?: string;
 }
 
 export interface UploadTargets {

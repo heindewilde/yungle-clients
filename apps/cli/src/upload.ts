@@ -1,4 +1,4 @@
-import type { UploadTarget } from 'yungle-client';
+import { createTokenKeeper, type RenewOutcome, type UploadTarget } from 'yungle-client';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { clearUploadUrls, readUploadUrls, saveUploadUrl } from './config';
@@ -47,17 +47,29 @@ export interface UploadProgress {
  */
 const CONCURRENCY = 3;
 
+/**
+ * Keeping each file's two-hour upload token alive. Without it, any upload that
+ * has to resume after two hours — a dropped connection four hours into a
+ * 300 GB file — is refused, and the whole file starts over.
+ */
+export interface TokenRenewal {
+  renew: (current: string) => Promise<RenewOutcome>;
+  /** Persist a fresh token, so a killed run resumes with one that works. */
+  onRenewed?: (fileId: string, token: string) => void;
+}
+
 export async function uploadAll(
   files: UploadFile[],
   endpoint: string,
   onProgress: (p: UploadProgress) => void,
+  renewal?: TokenRenewal,
 ): Promise<void> {
   const queue = [...files];
   const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
     for (;;) {
       const next = queue.shift();
       if (!next) return;
-      await uploadOne(next, endpoint, onProgress);
+      await uploadOne(next, endpoint, onProgress, renewal);
     }
   });
   await Promise.all(workers);
@@ -68,13 +80,24 @@ async function uploadOne(
   file: UploadFile,
   endpoint: string,
   onProgress: (p: UploadProgress) => void,
+  renewal?: TokenRenewal,
 ): Promise<void> {
   const tus = await import('tus-js-client');
+  const keeper = renewal
+    ? createTokenKeeper(file.target.uploadToken, {
+        renew: async (current) => {
+          const outcome = await renewal.renew(current);
+          if (typeof outcome === 'object') renewal.onRenewed?.(file.target.id, outcome.token);
+          return outcome;
+        },
+      })
+    : null;
   const { size } = await stat(file.path);
   const urls = await readUploadUrls();
   const uploadUrl = urls[file.target.id];
   const started = Date.now();
 
+  try {
   await new Promise<void>((resolve, reject) => {
     // Declared before the options object that closes over it: onUploadUrlAvailable
     // needs to read `upload.url`, and the callback only ever runs after start().
@@ -95,6 +118,10 @@ async function uploadOne(
        * the server on the first POST, so it cannot carry the token alone.
        */
       headers: { 'x-yungle-upload-token': file.target.uploadToken },
+      // The renewed token, once there is one — read per request, not fixed above.
+      onBeforeRequest: (req) => {
+        if (keeper) req.setHeader('x-yungle-upload-token', keeper.current());
+      },
       metadata: {
         fileId: file.target.id,
         token: file.target.uploadToken,
@@ -138,4 +165,7 @@ async function uploadOne(
     });
     upload.start();
   });
+  } finally {
+    keeper?.stop();
+  }
 }

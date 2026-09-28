@@ -55,6 +55,12 @@ class Yungle:
             "User-Agent": f"yungle-python/{_VERSION}",
         }
 
+    @property
+    def renew_url(self) -> str:
+        """Where upload tokens are renewed: outside ``/api/v1``, on the same site."""
+        origin = self.base_url[: -len("/api/v1")] if self.base_url.endswith("/api/v1") else self.base_url
+        return f"{origin}/api/uploads/token"
+
     def close(self) -> None:
         self._http.close()
 
@@ -84,7 +90,7 @@ class Yungle:
         files = [{"name": os.path.basename(p), "size": os.path.getsize(p)} for p in paths]
         draft = self.create_transfer(files, title=title, expires_in_days=expires_in_days)
         for target, path in zip(draft["files"], paths):
-            upload_file(draft["tusEndpoint"], target, path, http=self._http)
+            upload_file(draft["tusEndpoint"], target, path, http=self._http, renew_url=self.renew_url)
         sent = self.finalize_transfer(
             draft["transfer"]["id"], recipients=list(to), message=message, password=password
         )
