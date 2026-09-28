@@ -2,10 +2,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { YungleApiError, YungleClient } from 'yungle-client';
 import { z } from 'zod';
-import { realpath, stat } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { mkdir, realpath, stat } from 'node:fs/promises';
+import { basename, isAbsolute, join } from 'node:path';
 import { UNTRUSTED_NOTE, wrapUntrusted } from './untrusted';
 import { uploadBytes, uploadPath } from './upload';
+import { saveLinks } from './download';
 
 /**
  * A Model Context Protocol server for Yungle.
@@ -196,6 +197,106 @@ export function createServer(
     },
     async () => ok(wrapUntrusted(await client.listContacts())),
   );
+
+  // ── Getting files out ─────────────────────────────────────────────────────
+
+  const whichSource = {
+    url: z
+      .string()
+      .optional()
+      .describe('A Yungle link someone shared: https://yungle.co/t/… (transfer) or https://yungle.co/c/… (collection).'),
+    password: z.string().optional().describe('For a password-protected link.'),
+    transferId: z.string().optional().describe('The id of one of your own transfers (when there is no link).'),
+    collectionId: z.string().optional().describe('The id of one of your own collections (when there is no link).'),
+  };
+  const fetchLinks = async (a: { url?: string; password?: string; transferId?: string; collectionId?: string }) => {
+    const given = [a.url, a.transferId, a.collectionId].filter(Boolean).length;
+    if (given !== 1) throw new Error('Pass exactly one of url, transferId or collectionId.');
+    if (a.url) return client.resolveLink(a.url, a.password);
+    if (a.transferId) return client.transferDownloadLinks(a.transferId);
+    return client.collectionDownloadLinks(a.collectionId!);
+  };
+
+  server.registerTool(
+    'get_download_links',
+    {
+      title: 'Download links',
+      description: [
+        'Answers: what is in this link someone sent me? how do I get these files? Turns a Yungle link',
+        '(https://yungle.co/t/… or /c/…), or one of your own transfers or collections, into signed',
+        'download URLs: one per file, with its folder path, plus a ZIP. The URLs need no key, support',
+        'HTTP Range (resumable), and work for 24 hours — fetch them with curl or any HTTP client.',
+        'Resolving someone else\'s link counts as one download of it, like opening it in a browser.',
+      ].join('\n'),
+      inputSchema: whichSource,
+      annotations: { title: 'Download links', readOnlyHint: true, openWorldHint: true },
+    },
+    async (args) => {
+      try {
+        return ok(wrapUntrusted(await fetchLinks(args)));
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    },
+  );
+
+  if (opts.local) {
+    server.registerTool(
+      'download_files',
+      {
+        title: 'Download files to this computer',
+        description: [
+          'Save the files of a Yungle link, or of one of your own transfers or collections, into a',
+          'folder on this machine — resumably, keeping their folder structure. Files land in a new',
+          'subfolder of `directory`; nothing outside it is written, and files already there at full',
+          'size are skipped. Returns the saved paths.',
+        ].join('\n'),
+        inputSchema: {
+          ...whichSource,
+          directory: z.string().min(1).describe('Absolute path of an existing folder to save into, e.g. ~/Downloads expanded.'),
+        },
+        annotations: { title: 'Download files to this computer', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      },
+      async ({ directory, ...source }, extra) => {
+        if (!isAbsolute(directory)) return fail('`directory` must be an absolute path.');
+        const isHidden = (p: string) => p.split(/[\\/]/).some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..');
+        const real = await realpath(directory).catch(() => null);
+        if (!real || !(await stat(real)).isDirectory()) return fail(`No such folder: ${directory}`);
+        // Hidden folders are where configuration and startup scripts live.
+        if (isHidden(real)) return fail(`Refused: ${real} is a hidden folder.`);
+        let links;
+        try {
+          links = await fetchLinks(source);
+        } catch (err) {
+          return fail(errorText(err));
+        }
+        if (links.e2ee) return fail('This transfer is end-to-end encrypted; only a browser holding the key in the link can open it.');
+        if (links.files.length === 0) return ok({ saved: [], note: 'Nothing to download.' });
+        const bytes = links.files.reduce((n, f) => n + f.size, 0);
+        const label = links.title ?? (links.kind === 'collection' ? 'collection' : 'transfer');
+        const folder = join(real, `yungle-${label.replace(/[^\w .-]+/g, '_').slice(0, 60).trim() || 'download'}`);
+        const agreed = await confirm(
+          server,
+          `Download ${links.files.length} file${links.files.length === 1 ? '' : 's'} (${formatBytes(bytes)}) into ${folder}?`,
+          extra,
+        );
+        // Unlike sharing, a download reveals nothing: "cannot ask" leaves the
+        // host's own tool approval standing, and the write is confined to a new
+        // subfolder of a non-hidden directory the user named.
+        if (agreed === 'declined') return ok({ saved: [], reason: 'The user declined.' });
+        await mkdir(folder, { recursive: true });
+        const saved = await saveLinks(links, folder);
+        return ok(
+          wrapUntrusted({
+            folder,
+            complete: links.complete,
+            saved: saved.map((f) => ({ path: f.path, bytes: f.bytes, alreadyThere: f.skipped })),
+            ...(links.complete ? {} : { note: 'The sender is still uploading; run this again later for the rest.' }),
+          }),
+        );
+      },
+    );
+  }
 
   // ── Writing ───────────────────────────────────────────────────────────────
 
@@ -472,6 +573,21 @@ export function keylessClient(): YungleClient {
   return new Proxy({} as YungleClient, {
     get: () => () => Promise.reject(new Error(message)),
   });
+}
+
+function errorText(err: unknown): string {
+  if (err instanceof YungleApiError) return `${err.message}${err.code ? ` (${err.code})` : ''}`;
+  return err instanceof Error ? err.message : String(err);
+}
+
+function formatBytes(n: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
 }
 
 /** Successful tool result. */

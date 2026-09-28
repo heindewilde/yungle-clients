@@ -22,7 +22,7 @@ Send and receive
     --title <text>        label for your dashboard
     --password <text>     recipients must enter this
     --expires <days>      lifetime, clamped to your plan
-  yungle get <link>                       download a transfer sent to you
+  yungle get <link>                       download a transfer or collection shared with you
     --out <dir>           where to save (default: current directory)
     --zip                 one zip instead of separate files
     --password <text>     for a protected link; asks if left out
@@ -33,6 +33,10 @@ Send and receive
 Collections
   yungle push <paths…> --collection <id>  upload into a collection
     --folder <id>         target folder
+  yungle pull --collection <id>           download your collection, folders kept
+    --transfer <id>       download your own transfer instead
+    --out <dir>           where to save (default: the collection's title)
+    --zip                 one zip instead of separate files
   yungle watch <dir> --collection <id>    keep uploading new files as they appear
     --interval <seconds>  how often to look (default 10)
     --existing            also upload what is already in the folder
@@ -72,6 +76,7 @@ export const COMMANDS = [
   'transfers',
   'revoke',
   'push',
+  'pull',
   'watch',
   'collections',
   'contacts',
@@ -113,6 +118,7 @@ export const EXAMPLES: Record<string, string[]> = {
     'yungle send dist/ --json | jq -r .url         # in a script',
   ],
   get: ['yungle get https://yungle.co/t/emerald-palm-a5mt', 'yungle get <link> --zip --out ~/Downloads'],
+  pull: ['yungle pull --collection 01JABC… --out ./wedding', 'yungle pull --transfer 01JABD…'],
   status: ['yungle status                                 # pick from your recent transfers', 'yungle status https://yungle.co/t/emerald-palm-a5mt'],
   push: ['yungle push ~/Shoot --collection 01J8Z3M9Q0W4', 'yungle push raw/ --collection 01J8Z3M9Q0W4 --folder 01J8Z4AB'],
   watch: ['yungle watch ~/Renders --collection 01J8Z3M9Q0W4', 'yungle watch /Volumes/CARD --collection 01J8Z3M9Q0W4 --interval 30'],

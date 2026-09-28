@@ -10,6 +10,7 @@ from urllib.parse import quote
 import httpx
 
 from .errors import YungleError, parse_retry_after
+from .download import download_links
 from .upload import upload_file
 
 DEFAULT_BASE = "https://yungle.co/api/v1"
@@ -156,6 +157,32 @@ class Yungle:
     def revoke_transfer(self, id: str) -> dict[str, Any]:
         """Immediate and irreversible: the link stops working and the content is destroyed."""
         return self._request("DELETE", f"/transfers/{_enc(id)}")
+
+    def transfer_download_links(self, id: str) -> dict[str, Any]:
+        """Signed, resumable download URLs for your own transfer. Not a recipient download."""
+        return self._request("GET", f"/transfers/{_enc(id)}/download-links")
+
+    def collection_download_links(self, id: str) -> dict[str, Any]:
+        """Signed download URLs for every file in your collection, with folder ``path``s."""
+        return self._request("GET", f"/collections/{_enc(id)}/download-links")
+
+    def resolve_link(self, url: str, *, password: Optional[str] = None) -> dict[str, Any]:
+        """
+        A link someone shared with you (``…/t/…`` or ``…/c/…``) as signed download
+        URLs, under the same rules as opening it in a browser.
+        """
+        return self._request("POST", "/links/resolve", json={"url": url, **({"password": password} if password else {})})
+
+    def download(self, links_or_url: Any, out_dir: str = ".", *, password: Optional[str] = None,
+                 on_progress: Optional[Any] = None) -> list[str]:
+        """
+        Save a shared link, or links you already fetched, into ``out_dir`` —
+        resumably, keeping folders, skipping files already there.
+
+        >>> yungle.download("https://yungle.co/t/k3v9…", "incoming/")
+        """
+        links = self.resolve_link(links_or_url, password=password) if isinstance(links_or_url, str) else links_or_url
+        return download_links(links, out_dir, on_progress=on_progress)
 
     def transfer_downloads(self, id: str) -> dict[str, Any]:
         return self._request("GET", f"/transfers/{_enc(id)}/downloads")

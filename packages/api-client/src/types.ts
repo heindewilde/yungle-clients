@@ -268,3 +268,39 @@ export type PulledWebhookEvent<T = Record<string, unknown>> = WebhookEvent<T> & 
   /** Pass the last one back as `cursor`. */
   deliveryId: string;
 };
+
+/** One file in a set of download links. */
+export interface DownloadLink {
+  id: string;
+  /** For an end-to-end encrypted transfer, a placeholder; the real name is sealed in `e2eeMeta`. */
+  name: string;
+  size: number;
+  mimeType: string;
+  /** Folder path, `""` at the root. Join it onto your output directory. */
+  path: string;
+  /** A signed GET that needs no key. Supports `Range`. Valid until `urlsExpireAt`. */
+  downloadUrl: string;
+  e2eeMeta?: string | null;
+}
+
+/**
+ * Signed download URLs for a transfer or collection — your own
+ * (`transferDownloadLinks`, `collectionDownloadLinks`) or a link shared with
+ * you (`resolveLink`).
+ */
+export interface DownloadLinks {
+  kind: 'transfer' | 'collection';
+  /** A collection's title. Always null for a transfer, whose title recipients never see. */
+  title: string | null;
+  message: string | null;
+  expiresAt: Iso8601 | null;
+  /** End-to-end encrypted: the bytes are ciphertext and the key is in the link's `#` part. */
+  e2ee: boolean;
+  e2eeMeta?: string | null;
+  /** False while a transfer is still uploading: `files` is what has arrived so far. */
+  complete: boolean;
+  zipUrl: string | null;
+  /** When the URLs stop working; ask again for fresh ones. */
+  urlsExpireAt: Iso8601;
+  files: DownloadLink[];
+}

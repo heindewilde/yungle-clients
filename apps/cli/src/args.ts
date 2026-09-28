@@ -30,6 +30,7 @@ const VALUE_FLAGS = new Set([
   'password',
   'expires',
   'collection',
+  'transfer',
   'folder',
   'out',
   'url',

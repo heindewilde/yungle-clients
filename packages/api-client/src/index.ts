@@ -5,6 +5,7 @@ import type {
   Contact,
   ContactInput,
   DownloadEvent,
+  DownloadLinks,
   FileInput,
   Folder,
   Guest,
@@ -253,6 +254,24 @@ export class YungleClient {
     return this.request('DELETE', `/transfers/${enc(id)}`);
   }
 
+  /**
+   * Signed download URLs for your own transfer. Fetching them is not a
+   * recipient download — it never appears in receipts. Throws
+   * `e2ee_unsupported` for an end-to-end encrypted transfer.
+   */
+  transferDownloadLinks(id: string): Promise<DownloadLinks> {
+    return this.request('GET', `/transfers/${enc(id)}/download-links`);
+  }
+
+  /**
+   * A link someone shared with you (`…/t/…` or `…/c/…`), as signed download
+   * URLs — what a person opening it in a browser could download, under the same
+   * rules. Pass `password` for a protected link. Any key works, free included.
+   */
+  resolveLink(url: string, password?: string): Promise<DownloadLinks> {
+    return this.request('POST', '/links/resolve', { url, ...(password ? { password } : {}) });
+  }
+
   transferDownloads(id: string): Promise<{
     downloads: DownloadEvent[];
     recipients: RecipientStatus[];
@@ -269,6 +288,14 @@ export class YungleClient {
 
   createCollection(input: { title: string; description?: string }): Promise<{ collection: Collection }> {
     return this.request('POST', '/collections', input);
+  }
+
+  /**
+   * Signed download URLs for your own collection: every file with its folder
+   * `path`, and a whole-collection ZIP. The URLs need no key and support `Range`.
+   */
+  collectionDownloadLinks(id: string): Promise<DownloadLinks> {
+    return this.request('GET', `/collections/${enc(id)}/download-links`);
   }
 
   getCollection(id: string): Promise<{ collection: Collection }> {

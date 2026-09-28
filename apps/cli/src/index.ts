@@ -17,7 +17,8 @@ import {
 } from './config';
 import { CliError, NotSignedIn, suggest } from './errors';
 import { collectFiles, pairWithTargets, toFileInputs, type LocalFile } from './files';
-import { dedupeNames, downloadTo, fetchManifest, ManifestError, parseTransferLink, safeFileName, type Manifest } from './get';
+import { stat } from 'node:fs/promises';
+import { dedupePaths, downloadTo, fetchManifest, ManifestError, parseTransferLink, safeFileName, safeRelativeDir, type Manifest } from './get';
 import { askKey, askLink, askPassword, askSend, confirm, pick } from './guided';
 import { COMMANDS, commandHelp, HELP, renderHelp, resolveAlias } from './help';
 import { cursorAtNow, describeEvent, ensureListenEndpoint, signForForward } from './listen';
@@ -101,6 +102,8 @@ export async function main(argvIn: string[]): Promise<number> {
         return await send(positionals, flags, json);
       case 'get':
         return await get(positionals, flags, json);
+      case 'pull':
+        return await pull(flags, json);
       case 'status':
         return await status(positionals, flags, json);
       case 'transfers':
@@ -383,7 +386,7 @@ async function get(positionals: string[], flags: Flags, json: boolean): Promise<
       const needs = err instanceof ManifestError && (err.code === 'password_required' || err.code === 'wrong_password');
       if (!needs || !interactive(flags)) {
         if (err instanceof ManifestError && err.code === 'password_required') {
-          throw new CliError('This transfer is password protected.', `yungle get ${input} --password <password>`, 'password_required');
+          throw new CliError(`This ${link.kind === 'c' ? 'collection' : 'transfer'} is password protected.`, `yungle get ${input} --password <password>`, 'password_required');
         }
         throw err;
       }
@@ -399,20 +402,76 @@ async function get(positionals: string[], flags: Flags, json: boolean): Promise<
       'e2ee',
     );
   }
-  if (manifest.files.length === 0) return out(json, { saved: [] }, '  This transfer has no files.');
+  return saveManifest(manifest, {
+    outDir,
+    zip: flags.zip === true,
+    zipName: `yungle-${link.slug}.zip`,
+    json,
+    empty: `  This ${link.kind === 'c' ? 'collection' : 'transfer'} has no files.`,
+  });
+}
 
-  const useZip = flags.zip === true && manifest.zipUrl !== null;
+/**
+ * `yungle pull --collection <id>` (or `--transfer <id>`) — download your own,
+ * with your key. The mirror of `push`: files land in their folders, and a file
+ * already on disk at its full size is skipped, so running it again only fetches
+ * what is new.
+ */
+async function pull(flags: Flags, json: boolean): Promise<number> {
+  const collectionId = stringFlag(flags.collection);
+  const transferId = stringFlag(flags.transfer);
+  if (!collectionId === !transferId) {
+    throw new CliError('Pull what?', 'yungle pull --collection <id>   or   yungle pull --transfer <id>', 'usage', 2);
+  }
+  const api = client(flags);
+  const manifest = collectionId
+    ? await api.collectionDownloadLinks(collectionId)
+    : await api.transferDownloadLinks(transferId!);
+  const outDir = resolve(stringFlag(flags.out) ?? (collectionId ? safeFileName(manifest.title ?? collectionId) : '.'));
+  return saveManifest(manifest, {
+    outDir,
+    zip: flags.zip === true,
+    zipName: `yungle-${collectionId ?? transferId}.zip`,
+    json,
+    empty: `  This ${collectionId ? 'collection' : 'transfer'} has no files.`,
+  });
+}
+
+/**
+ * Download what a manifest lists into `outDir`, keeping folder paths. Shared by
+ * `get` (a link) and `pull` (your own). One file at a time: a download is
+ * bounded by the line, not by per-request latency.
+ */
+async function saveManifest(
+  manifest: Manifest,
+  opts: { outDir: string; zip: boolean; zipName: string; json: boolean; empty: string },
+): Promise<number> {
+  const { outDir, json } = opts;
+  if (manifest.files.length === 0) return out(json, { saved: [], skipped: [], complete: manifest.complete ?? true }, opts.empty);
+  if (manifest.complete === false && !json) {
+    note(`Still uploading: ${plural(manifest.files.length, 'file')} have arrived so far. Run this again later for the rest.`);
+  }
+
+  const useZip = opts.zip && manifest.zipUrl !== null;
+  const relPaths = dedupePaths(manifest.files.map((f) => ({ dir: safeRelativeDir(f.path), name: safeFileName(f.name) })));
   const jobs = useZip
-    ? [{ url: manifest.zipUrl!, name: `yungle-${link.slug}.zip`, size: null as number | null }]
-    : dedupeNames(manifest.files.map((f) => safeFileName(f.name))).map((name, i) => ({ url: manifest.files[i]!.downloadUrl, name, size: manifest.files[i]!.size as number | null }));
+    ? [{ url: manifest.zipUrl!, rel: opts.zipName, size: null as number | null }]
+    : relPaths.map((rel, i) => ({ url: manifest.files[i]!.downloadUrl, rel, size: manifest.files[i]!.size as number | null }));
 
   const total = manifest.files.reduce((n, f) => n + f.size, 0);
   heading(`Downloading ${plural(manifest.files.length, 'file')} ${sym.dot} ${formatBytes(total)}`);
   let received = 0;
   const started = Date.now();
   const saved: string[] = [];
+  const skipped: string[] = [];
   for (const [i, job] of jobs.entries()) {
-    const dest = join(outDir, job.name);
+    const dest = join(outDir, job.rel);
+    // Already here, whole: a second `pull` fetches only what is new.
+    if (job.size !== null && (await stat(dest).then((st) => st.size, () => -1)) === job.size) {
+      received += job.size;
+      skipped.push(dest);
+      continue;
+    }
     await downloadTo(job.url, dest, job.size, USER_AGENT, (n) => {
       received += n;
       drawProgress(progressLine(Math.min(received, total), total, started, `${i + 1}/${jobs.length} files`));
@@ -420,10 +479,16 @@ async function get(positionals: string[], flags: Flags, json: boolean): Promise<
     saved.push(dest);
   }
   endProgress();
+  const skippedNote = skipped.length ? [o.dim(`${plural(skipped.length, 'file')} already here, skipped`)] : [];
   return out(
     json,
-    { saved, message: manifest.message, expiresAt: manifest.expiresAt },
-    success(`Saved ${saved.length === 1 ? shown(saved[0]!) : `${plural(saved.length, 'file')} to ${shown(outDir)}`}`, manifest.message ? [o.italic(`“${manifest.message}”`)] : []),
+    { saved, skipped, complete: manifest.complete ?? true, message: manifest.message, expiresAt: manifest.expiresAt },
+    success(
+      saved.length === 0
+        ? 'Nothing new to download'
+        : `Saved ${saved.length === 1 ? shown(saved[0]!) : `${plural(saved.length, 'file')} to ${shown(outDir)}`}`,
+      [...(manifest.message ? [o.italic(`“${manifest.message}”`)] : []), ...skippedNote],
+    ),
     saved.join('\n'),
   );
 }
