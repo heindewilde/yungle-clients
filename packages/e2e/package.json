@@ -1,0 +1,50 @@
+{
+  "name": "yungle-e2e",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/*.test.ts",
+    "prepublishOnly": "node build.mjs",
+    "prepare": "node build.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "description": "Yungle's end-to-end encryption core: the ciphertext format, key derivation and sealed metadata used by encrypted transfers and the vault. WebCrypto only, no dependencies.",
+  "license": "MIT",
+  "author": "Brainpower <hello@yungle.co> (https://yungle.co)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/heindewilde/yungle-clients.git"
+  },
+  "homepage": "https://yungle.co/security?ref=npm",
+  "bugs": {
+    "url": "https://github.com/heindewilde/yungle-clients/issues"
+  },
+  "keywords": [
+    "yungle",
+    "end-to-end-encryption",
+    "e2ee",
+    "webcrypto",
+    "aes-gcm",
+    "file-transfer"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "types": "./dist/index.d.ts"
+}

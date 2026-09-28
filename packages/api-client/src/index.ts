@@ -160,6 +160,11 @@ export class YungleClient {
     files: FileInput[];
     title?: string;
     expiresInDays?: number;
+    /**
+     * Encrypted by the client (`yungle-e2e`); the key travels only in the link's
+     * fragment. Such a transfer takes no title and cannot be emailed.
+     */
+    e2ee?: boolean;
   }): Promise<{ transfer: { id: string; slug: string; expiresAt: string; maxBytes: number } } & UploadTargets> {
     return this.request('POST', '/transfers', input);
   }
@@ -180,7 +185,14 @@ export class YungleClient {
    */
   finalizeTransfer(
     id: string,
-    input: { recipients?: string[]; message?: string; password?: string; title?: string } = {},
+    input: {
+      recipients?: string[];
+      message?: string;
+      password?: string;
+      title?: string;
+      /** End-to-end encrypted transfers only: the sealed `{ message }`. */
+      e2eeMeta?: string;
+    } = {},
   ): Promise<{ transfer: Transfer; notified: string[] }> {
     return this.request('POST', `/transfers/${enc(id)}/finalize`, input, { idempotent: true });
   }

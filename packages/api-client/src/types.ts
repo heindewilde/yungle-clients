@@ -58,6 +58,11 @@ export interface FileInput {
   type?: string;
   /** Directory inside an uploaded folder, e.g. `Ceremony/Raw`. */
   path?: string;
+  /**
+   * End-to-end encrypted transfers only: the sealed `{ name, path, size, type }`
+   * from `yungle-e2e`. `size` is then the ciphertext length.
+   */
+  e2eeMeta?: string;
 }
 
 /** Where to put the bytes, and the token that authorizes every tus request. */
