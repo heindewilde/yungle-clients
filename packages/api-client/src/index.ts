@@ -6,6 +6,8 @@ import type {
   ContactInput,
   DownloadEvent,
   DownloadLinks,
+  ImportInput,
+  ImportStatus,
   FileInput,
   Folder,
   Guest,
@@ -205,8 +207,13 @@ export class YungleClient {
   /**
    * Create a draft. Nothing is live and nobody is emailed until `finalizeTransfer`.
    */
+  /**
+   * A draft transfer. `files` are uploaded by you (tus, to the returned
+   * targets); `imports` are fetched by Yungle from URLs. Send either or both.
+   */
   createTransfer(input: {
-    files: FileInput[];
+    files?: FileInput[];
+    imports?: ImportInput[];
     title?: string;
     expiresInDays?: number;
   }): Promise<{ transfer: { id: string; slug: string; expiresAt: string; maxBytes: number } } & UploadTargets> {
@@ -234,8 +241,26 @@ export class YungleClient {
     return this.request('POST', `/transfers/${enc(id)}/finalize`, input, { idempotent: true });
   }
 
-  addTransferFiles(id: string, files: FileInput[]): Promise<UploadTargets> {
-    return this.request('POST', `/transfers/${enc(id)}/files`, { files });
+  addTransferFiles(id: string, files: FileInput[], imports?: ImportInput[]): Promise<UploadTargets> {
+    return this.request('POST', `/transfers/${enc(id)}/files`, { files, ...(imports?.length ? { imports } : {}) });
+  }
+
+  /** Where a URL import stands: `importing` (with `receivedBytes`), `ready` or `failed`. */
+  getImport(fileId: string): Promise<ImportStatus> {
+    return this.request('GET', `/imports/${enc(fileId)}`);
+  }
+
+  /**
+   * Poll `getImport` until every import is `ready` or `failed`, every
+   * `intervalMs` (default 5 s). Resolves with the final statuses; never throws
+   * for a failed import — check `status`.
+   */
+  async waitForImports(fileIds: string[], intervalMs = 5000): Promise<ImportStatus[]> {
+    for (;;) {
+      const all = await Promise.all(fileIds.map((id) => this.getImport(id)));
+      if (all.every((s) => s.status !== 'importing')) return all;
+      await sleep(intervalMs);
+    }
   }
 
   removeTransferFile(id: string, fileId: string): Promise<{ deleted: boolean }> {
@@ -341,8 +366,9 @@ export class YungleClient {
     id: string,
     files: FileInput[],
     folderId?: string | null,
+    imports?: ImportInput[],
   ): Promise<UploadTargets> {
-    return this.request('POST', `/collections/${enc(id)}/files`, { files, folderId });
+    return this.request('POST', `/collections/${enc(id)}/files`, { files, folderId, ...(imports?.length ? { imports } : {}) });
   }
 
   deleteCollectionFiles(id: string, fileIds: string[]): Promise<{ deleted: number }> {

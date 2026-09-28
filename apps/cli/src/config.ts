@@ -130,6 +130,8 @@ export interface UploadSession {
   targetId: string;
   tusEndpoint: string;
   files: { path: string; id: string; name: string; size: number; uploadToken: string }[];
+  /** Files Yungle is fetching from `--from-url`; a resumed run waits on these. */
+  imports?: { fileId: string; name: string; size: number }[];
 }
 
 /**

@@ -75,8 +75,9 @@ class Yungle:
 
     def send(
         self,
-        paths: Sequence[str],
+        paths: Sequence[str] = (),
         *,
+        urls: Sequence[str] = (),
         to: Sequence[str] = (),
         message: Optional[str] = None,
         title: Optional[str] = None,
@@ -87,11 +88,21 @@ class Yungle:
         Create a transfer, upload the files resumably, send it, and return the
         finalized transfer (``url``, ``expiresAt``, …). With no ``to`` it is a
         link only; nobody is emailed.
+
+        ``urls`` are files Yungle fetches itself (a presigned S3 link, a CDN
+        URL), so their bytes never pass through this process. They are waited
+        for before sending; a failed one raises ``RuntimeError`` and nothing is sent.
         """
         files = [{"name": os.path.basename(p), "size": os.path.getsize(p)} for p in paths]
-        draft = self.create_transfer(files, title=title, expires_in_days=expires_in_days)
+        draft = self.create_transfer(
+            files, imports=[{"url": u} for u in urls], title=title, expires_in_days=expires_in_days
+        )
         for target, path in zip(draft["files"], paths):
             upload_file(draft["tusEndpoint"], target, path, http=self._http, renew_url=self.renew_url)
+        imported = self.wait_for_imports([i["fileId"] for i in draft.get("imports", [])])
+        failed = [i for i in imported if i["status"] == "failed"]
+        if failed:
+            raise RuntimeError("Could not fetch " + ", ".join(f"{i['name']} ({i.get('error')})" for i in failed))
         sent = self.finalize_transfer(
             draft["transfer"]["id"], recipients=list(to), message=message, password=password
         )
@@ -118,12 +129,36 @@ class Yungle:
                 return
 
     def create_transfer(
-        self, files: Sequence[dict[str, Any]], *, title: Optional[str] = None, expires_in_days: Optional[int] = None
+        self,
+        files: Sequence[dict[str, Any]] = (),
+        *,
+        imports: Sequence[dict[str, Any]] = (),
+        title: Optional[str] = None,
+        expires_in_days: Optional[int] = None,
     ) -> dict[str, Any]:
-        """A draft plus upload targets. Nothing is live until ``finalize_transfer``."""
+        """
+        A draft plus upload targets. Nothing is live until ``finalize_transfer``.
+        ``imports`` (``{"url": …, "name"?: …, "path"?: …}``) are fetched by Yungle.
+        """
         return self._request(
-            "POST", "/transfers", json=_drop_none({"files": list(files), "title": title, "expiresInDays": expires_in_days})
+            "POST",
+            "/transfers",
+            json=_drop_none(
+                {"files": list(files), "imports": list(imports) or None, "title": title, "expiresInDays": expires_in_days}
+            ),
         )
+
+    def get_import(self, file_id: str) -> dict[str, Any]:
+        """Where a URL import stands: ``importing`` (with ``receivedBytes``), ``ready`` or ``failed``."""
+        return self._request("GET", f"/imports/{_enc(file_id)}")
+
+    def wait_for_imports(self, file_ids: Sequence[str], interval: float = 5.0) -> list[dict[str, Any]]:
+        """Poll until every import is ``ready`` or ``failed``; returns the final statuses."""
+        while True:
+            statuses = [self.get_import(i) for i in file_ids]
+            if all(s["status"] != "importing" for s in statuses):
+                return statuses
+            time.sleep(interval)
 
     def get_transfer(self, id: str) -> dict[str, Any]:
         return self._request("GET", f"/transfers/{_enc(id)}")
@@ -140,8 +175,12 @@ class Yungle:
         body = _drop_none({"recipients": list(recipients) or None, "message": message, "password": password, "title": title})
         return self._request("POST", f"/transfers/{_enc(id)}/finalize", json=body)
 
-    def add_transfer_files(self, id: str, files: Sequence[dict[str, Any]]) -> dict[str, Any]:
-        return self._request("POST", f"/transfers/{_enc(id)}/files", json={"files": list(files)})
+    def add_transfer_files(
+        self, id: str, files: Sequence[dict[str, Any]] = (), *, imports: Sequence[dict[str, Any]] = ()
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST", f"/transfers/{_enc(id)}/files", json=_drop_none({"files": list(files), "imports": list(imports) or None})
+        )
 
     def remove_transfer_file(self, id: str, file_id: str) -> dict[str, Any]:
         return self._request("DELETE", f"/transfers/{_enc(id)}/files/{_enc(file_id)}")
@@ -225,9 +264,18 @@ class Yungle:
                 return
 
     def add_collection_files(
-        self, id: str, files: Sequence[dict[str, Any]], *, folder_id: Optional[str] = None
+        self,
+        id: str,
+        files: Sequence[dict[str, Any]] = (),
+        *,
+        folder_id: Optional[str] = None,
+        imports: Sequence[dict[str, Any]] = (),
     ) -> dict[str, Any]:
-        return self._request("POST", f"/collections/{_enc(id)}/files", json=_drop_none({"files": list(files), "folderId": folder_id}))
+        return self._request(
+            "POST",
+            f"/collections/{_enc(id)}/files",
+            json=_drop_none({"files": list(files), "folderId": folder_id, "imports": list(imports) or None}),
+        )
 
     def delete_collection_files(self, id: str, file_ids: Sequence[str]) -> dict[str, Any]:
         return self._request("DELETE", f"/collections/{_enc(id)}/files", json={"fileIds": list(file_ids)})

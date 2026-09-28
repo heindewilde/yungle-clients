@@ -1,6 +1,6 @@
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { YungleClient, type Me, type TransferSummary } from 'yungle-client';
-import { listFlag, numberFlag, parseArgs, stringFlag } from './args';
+import { listFlag, urlListFlag, numberFlag, parseArgs, stringFlag } from './args';
 import { completionScript } from './completion';
 import {
   CONFIG_PATH,
@@ -231,8 +231,9 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
   let paths = pathsIn;
   let recipients = listFlag(flags.to);
   let message = stringFlag(flags.message);
+  const urls = urlListFlag(flags['from-url']);
   let askedFor = false;
-  if (paths.length === 0) {
+  if (paths.length === 0 && urls.length === 0) {
     if (!interactive(flags)) throw new CliError('Nothing to send.', 'yungle send <file or folder> [--to someone@example.com]', 'usage', 2);
     const answers = await askSend();
     paths = answers.paths;
@@ -252,10 +253,13 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
     if (!(await confirm('Send it as a link you share yourself?'))) throw new CliError('Cancelled; nothing was sent.', hint, 'cancelled', 130);
     recipients = [];
   }
-  const files = await collectFiles(paths);
-  if (files.length === 0) throw new CliError('Those paths contain no files (hidden files are skipped).', undefined, 'usage', 2);
+  const files = paths.length ? await collectFiles(paths) : [];
+  if (files.length === 0 && urls.length === 0) throw new CliError('Those paths contain no files (hidden files are skipped).', undefined, 'usage', 2);
   const total = files.reduce((n, f) => n + f.size, 0);
-  const summary = `${plural(files.length, 'file')} ${sym.dot} ${formatBytes(total)}${recipients.length ? ` to ${recipients.join(', ')}` : ''}`;
+  const summary =
+    [files.length ? `${plural(files.length, 'file')} ${sym.dot} ${formatBytes(total)}` : '', urls.length ? `${plural(urls.length, 'URL')} fetched by Yungle` : '']
+      .filter(Boolean)
+      .join(' + ') + (recipients.length ? ` to ${recipients.join(', ')}` : '');
 
   if (askedFor && !(await confirm(`Send ${summary}?`))) throw new CliError('Cancelled; nothing was sent.', undefined, 'cancelled', 130);
   heading(`Sending ${summary}`);
@@ -265,25 +269,34 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
    * The key is derived from the local files, because that is all the next
    * invocation has: it cannot know the transfer id of a process that was killed.
    */
-  const key = sessionKey(files, 'transfer');
+  const key = sessionKey(files, `transfer${urls.length ? `:${urls.join('\n')}` : ''}`);
   const existing = await findSession(key);
-  let created: { transfer: { id: string }; tusEndpoint: string; files: UploadSession['files'] };
+  let created: { transfer: { id: string }; tusEndpoint: string; files: UploadSession['files']; imports: NonNullable<UploadSession['imports']> };
   if (existing && existing.kind === 'transfer') {
     note('Resuming the interrupted upload.');
-    created = { transfer: { id: existing.targetId }, tusEndpoint: existing.tusEndpoint, files: existing.files };
+    created = { transfer: { id: existing.targetId }, tusEndpoint: existing.tusEndpoint, files: existing.files, imports: existing.imports ?? [] };
   } else {
     const fresh = await api.createTransfer({
       files: toFileInputs(files),
+      ...(urls.length ? { imports: urls.map((url) => ({ url })) } : {}),
       title: stringFlag(flags.title),
       expiresInDays: numberFlag(flags.expires, 'expires'),
     });
-    created = { transfer: fresh.transfer, tusEndpoint: fresh.tusEndpoint, files: fresh.files.map((f, i) => ({ ...f, path: files[i]!.path })) };
+    created = {
+      transfer: fresh.transfer,
+      tusEndpoint: fresh.tusEndpoint,
+      files: fresh.files.map((f, i) => ({ ...f, path: files[i]!.path })),
+      imports: (fresh.imports ?? []).map((i) => ({ fileId: i.fileId, name: i.name, size: i.size })),
+    };
     // Saved BEFORE a byte moves: written after, it would only ever describe
     // work that no longer needs resuming.
-    await saveSession(key, { createdAt: Date.now(), kind: 'transfer', targetId: fresh.transfer.id, tusEndpoint: fresh.tusEndpoint, files: created.files });
+    await saveSession(key, { createdAt: Date.now(), kind: 'transfer', targetId: fresh.transfer.id, tusEndpoint: fresh.tusEndpoint, files: created.files, imports: created.imports });
   }
 
-  await streamAll(files, created, api, key);
+  if (files.length) await streamAll(files, created, api, key);
+  // Imports run on Yungle's side; waiting here means a CI job learns about a
+  // source that failed before it mails anyone a transfer with a hole in it.
+  if (created.imports.length) await awaitImports(api, created.imports);
   // An upload can outlast a `yungle login` access token; refresh before the
   // call that makes the transfer live, not after it fails.
   const after = await freshClient(flags, api);
@@ -311,6 +324,36 @@ async function send(pathsIn: string[], flags: Flags, json: boolean): Promise<num
     ].join('\n'),
     t.url,
   );
+}
+
+/**
+ * Wait for URL imports to land, with one progress line over all of them. A
+ * failed import is an error naming the file and the reason — nothing is
+ * finalized (or emailed) with a file missing.
+ */
+async function awaitImports(api: YungleClient, imports: { fileId: string; name: string; size: number }[]): Promise<void> {
+  const total = imports.reduce((n, i) => n + i.size, 0);
+  heading(`Yungle is fetching ${plural(imports.length, 'file')} ${sym.dot} ${formatBytes(total)}`);
+  const started = Date.now();
+  for (;;) {
+    const statuses = await Promise.all(imports.map((i) => api.getImport(i.fileId)));
+    const received = statuses.reduce((n, s) => n + s.receivedBytes, 0);
+    const done = statuses.filter((s) => s.status !== 'importing').length;
+    drawProgress(progressLine(received, total, started, `${done}/${imports.length} fetched`));
+    if (done === imports.length) {
+      endProgress();
+      const failed = statuses.filter((s) => s.status === 'failed');
+      if (failed.length) {
+        throw new CliError(
+          `Could not fetch ${failed.map((f) => `${f.name} (${f.error ?? 'failed'})`).join(', ')}.`,
+          'Check the URL is public and still valid, then run the command again.',
+          'import_failed',
+        );
+      }
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
 }
 
 /**
@@ -620,30 +663,41 @@ async function revoke(positionals: string[], flags: Flags, json: boolean): Promi
 async function push(paths: string[], flags: Flags, json: boolean): Promise<number> {
   const collectionId = stringFlag(flags.collection);
   if (!collectionId) throw new CliError('Which collection?', 'yungle collections   then   yungle push <paths> --collection <id>', 'usage', 2);
-  if (paths.length === 0) throw new CliError('Nothing to upload.', `yungle push <paths> --collection ${collectionId}`, 'usage', 2);
+  const urls = urlListFlag(flags['from-url']);
+  if (paths.length === 0 && urls.length === 0) throw new CliError('Nothing to upload.', `yungle push <paths> --collection ${collectionId}`, 'usage', 2);
   const api = client(flags);
-  const files = await collectFiles(paths);
-  if (files.length === 0) throw new CliError('Those paths contain no files (hidden files are skipped).', undefined, 'usage', 2);
+  const files = paths.length ? await collectFiles(paths) : [];
+  if (files.length === 0 && urls.length === 0) throw new CliError('Those paths contain no files (hidden files are skipped).', undefined, 'usage', 2);
 
-  heading(`Uploading ${plural(files.length, 'file')} ${sym.dot} ${formatBytes(files.reduce((n, f) => n + f.size, 0))}`);
-  const key = sessionKey(files, `collection:${collectionId}:${stringFlag(flags.folder) ?? ''}`);
+  if (files.length) heading(`Uploading ${plural(files.length, 'file')} ${sym.dot} ${formatBytes(files.reduce((n, f) => n + f.size, 0))}`);
+  const key = sessionKey(files, `collection:${collectionId}:${stringFlag(flags.folder) ?? ''}${urls.length ? `:${urls.join('\n')}` : ''}`);
   const existing = await findSession(key);
-  let targets: { tusEndpoint: string; files: UploadSession['files'] };
+  let targets: { tusEndpoint: string; files: UploadSession['files']; imports: NonNullable<UploadSession['imports']> };
   if (existing && existing.kind === 'collection') {
     note('Resuming the interrupted upload.');
-    targets = { tusEndpoint: existing.tusEndpoint, files: existing.files };
+    targets = { tusEndpoint: existing.tusEndpoint, files: existing.files, imports: existing.imports ?? [] };
   } else {
-    const fresh = await api.addCollectionFiles(collectionId, toFileInputs(files), stringFlag(flags.folder) ?? null);
-    targets = { tusEndpoint: fresh.tusEndpoint, files: fresh.files.map((f, i) => ({ ...f, path: files[i]!.path })) };
-    await saveSession(key, { createdAt: Date.now(), kind: 'collection', targetId: collectionId, tusEndpoint: fresh.tusEndpoint, files: targets.files });
+    const fresh = await api.addCollectionFiles(
+      collectionId,
+      toFileInputs(files),
+      stringFlag(flags.folder) ?? null,
+      urls.map((url) => ({ url })),
+    );
+    targets = {
+      tusEndpoint: fresh.tusEndpoint,
+      files: fresh.files.map((f, i) => ({ ...f, path: files[i]!.path })),
+      imports: (fresh.imports ?? []).map((i) => ({ fileId: i.fileId, name: i.name, size: i.size })),
+    };
+    await saveSession(key, { createdAt: Date.now(), kind: 'collection', targetId: collectionId, tusEndpoint: fresh.tusEndpoint, files: targets.files, imports: targets.imports });
   }
-  await streamAll(files, targets, api, key);
+  if (files.length) await streamAll(files, targets, api, key);
+  if (targets.imports.length) await awaitImports(api, targets.imports);
   await dropSession(key);
   const { collection } = await (await freshClient(flags, api)).getCollection(collectionId);
   return out(
     json,
-    { collection: collection.id, uploaded: files.length, url: collection.url },
-    success(`Uploaded ${plural(files.length, 'file')} to “${collection.title}”`, collection.url ? [accentOut(collection.url)] : []),
+    { collection: collection.id, uploaded: files.length + targets.imports.length, url: collection.url },
+    success(`Added ${plural(files.length + targets.imports.length, 'file')} to “${collection.title}”`, collection.url ? [accentOut(collection.url)] : []),
     collection.url ?? collection.id,
   );
 }

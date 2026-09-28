@@ -17,6 +17,7 @@ Get started
 
 Send and receive
   yungle send <paths…>                    send files or folders, print the link
+    --from-url <url>      also send a file Yungle fetches from a URL (repeatable)
     --to <email>          recipient (repeatable, or comma-separated)
     --message <text>      note for the recipients
     --title <text>        label for your dashboard
@@ -33,6 +34,7 @@ Send and receive
 Collections
   yungle push <paths…> --collection <id>  upload into a collection
     --folder <id>         target folder
+    --from-url <url>      also add a file Yungle fetches from a URL (repeatable)
   yungle pull --collection <id>           download your collection, folders kept
     --transfer <id>       download your own transfer instead
     --out <dir>           where to save (default: the collection's title)
@@ -113,6 +115,7 @@ export function resolveAlias(argv: string[]): string[] {
 export const EXAMPLES: Record<string, string[]> = {
   login: ['yungle login', 'yungle login --key            # on a server: paste a key from Settings → API keys'],
   send: [
+    'yungle send --from-url https://example-bucket.s3.eu-central-1.amazonaws.com/render.mov?X-Amz-Signature=… --to client@example.com',
     'yungle send ~/Shoot --to anna@studio.nl --message "Final selects"',
     'yungle send report.pdf                        # just a link, nobody emailed',
     'yungle send dist/ --json | jq -r .url         # in a script',

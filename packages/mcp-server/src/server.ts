@@ -384,6 +384,73 @@ export function createServer(
     );
   }
 
+  if (opts.canWrite) {
+    server.registerTool(
+      'share_from_urls',
+      {
+        title: 'Share files from URLs as a link',
+        description: [
+          'Create a Yungle transfer from files that are already online — a presigned S3 or GCS link, a',
+          'CDN URL, a release asset — and return its link. Yungle fetches each file itself, so a file of',
+          'any size the plan allows moves without passing through this conversation. The link works at',
+          'once and shows the files as they arrive. Nobody is emailed. Up to 20 URLs; each must be',
+          'public and state its size.',
+        ].join('\n'),
+        inputSchema: {
+          urls: z
+            .array(
+              z.object({
+                url: z.string().url(),
+                name: z.string().min(1).max(200).optional().describe('File name; defaults to the one the source gives.'),
+              }),
+            )
+            .min(1)
+            .max(20),
+          title: z.string().optional().describe('Label for the dashboard; never shown to recipients.'),
+          expiresInDays: z.number().int().positive().optional(),
+        },
+        annotations: { title: 'Share files from URLs as a link', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ urls, title, expiresInDays }) => {
+        try {
+          const draft = await client.createTransfer({ imports: urls, title, expiresInDays });
+          const { transfer } = await client.finalizeTransfer(draft.transfer.id, {});
+          return ok(
+            wrapUntrusted({
+              transferId: transfer.id,
+              url: transfer.url,
+              expiresAt: transfer.expiresAt,
+              emailed: 'nobody',
+              imports: (draft.imports ?? []).map((i) => ({ fileId: i.fileId, name: i.name, size: i.size, from: i.source })),
+              status: 'Yungle is fetching the files now; the link shows them as they arrive.',
+            }),
+          );
+        } catch (err) {
+          return fail(errorText(err));
+        }
+      },
+    );
+
+    server.registerTool(
+      'get_import_status',
+      {
+        title: 'Import progress',
+        description:
+          'Answers: have the files Yungle is fetching from URLs arrived yet? For each file id, returns ' +
+          'importing (with bytes received so far), ready, or failed with the reason.',
+        inputSchema: { fileIds: z.array(z.string()).min(1).max(20) },
+        annotations: { title: 'Import progress', readOnlyHint: true },
+      },
+      async ({ fileIds }) => {
+        try {
+          return ok(wrapUntrusted({ imports: await Promise.all(fileIds.map((id) => client.getImport(id))) }));
+        } catch (err) {
+          return fail(errorText(err));
+        }
+      },
+    );
+  }
+
   if (opts.canWrite && opts.local) {
     server.registerTool(
       'share_local_files',

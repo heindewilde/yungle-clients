@@ -76,7 +76,44 @@ export interface UploadTarget {
 
 export interface UploadTargets {
   tusEndpoint: string;
+  /** One per `files` entry, in order. */
   files: UploadTarget[];
+  /** One per `imports` entry, in order. Absent from servers before 2026-09-29. */
+  imports?: ImportStarted[];
+}
+
+/**
+ * A file for Yungle to fetch from a URL itself, so the bytes never pass
+ * through you — a presigned S3 link, a CDN, a release asset. The source must
+ * state the size (Content-Length or a Range answer).
+ */
+export interface ImportInput {
+  url: string;
+  /** Defaults to the name the source gives. */
+  name?: string;
+  /** Folder to place it in. */
+  path?: string;
+}
+
+export interface ImportStarted {
+  fileId: string;
+  name: string;
+  size: number;
+  /** The source's host; never the full URL. */
+  source: string;
+  status: 'queued';
+}
+
+/** Where one import stands (`getImport`). */
+export interface ImportStatus {
+  fileId: string;
+  name: string;
+  size: number;
+  /** Committed so far; moves in steps of one storage part. */
+  receivedBytes: number;
+  source: string | null;
+  status: 'importing' | 'ready' | 'failed';
+  error: string | null;
 }
 
 export interface Transfer {

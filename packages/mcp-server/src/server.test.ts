@@ -45,12 +45,14 @@ function stubClient(): YungleClient {
       complete: true, zipUrl: null, urlsExpireAt: '2026-01-01T00:00:00.000Z',
       files: [{ id: 'f', name: 'a.txt', size: 1, mimeType: 'text/plain', path: '', downloadUrl: `${url}/dl` }],
     }),
+    getImport: async (fileId: string) => ({ fileId, name: 'x', size: 1, receivedBytes: 0, source: 'cdn.test', status: 'importing', error: null }),
     transferDownloadLinks: async () => ({ kind: 'transfer', files: [], e2ee: false, complete: true }),
     collectionDownloadLinks: async () => ({ kind: 'collection', files: [], e2ee: false, complete: true }),
-    createTransfer: async () => ({
+    createTransfer: async (input: { imports?: { url: string }[] }) => ({
       transfer: { id: 't1', slug: 's', expiresAt: '2026-01-01T00:00:00.000Z', maxBytes: 1 },
       tusEndpoint: 'https://example.test/files',
       files: [],
+      imports: (input.imports ?? []).map((i, n) => ({ fileId: `imp${n}`, name: 'render.mov', size: 5, source: new URL(i.url).host, status: 'queued' })),
     }),
   };
   return stub as unknown as YungleClient;
@@ -345,4 +347,18 @@ test('download_files is local-only, and refuses relative and hidden destinations
   await mkdir(join(base, '.config'));
   const hidden = await client.callTool({ name: 'download_files', arguments: { url: 'https://yungle.test/t/abc', directory: join(base, '.config') } });
   assert.match(text(hidden), /hidden/);
+});
+
+test('share_from_urls: a write, never an email, and the link is live at once', async () => {
+  const readOnly = await connect();
+  assert.ok(!(await readOnly.listTools()).tools.some((t) => t.name === 'share_from_urls'), 'needs transfers:write');
+  const client = await connect({ canWrite: true, canEmail: false, local: false });
+  const res = await client.callTool({ name: 'share_from_urls', arguments: { urls: [{ url: 'https://cdn.example.com/a.mov?sig=secret' }] } });
+  const body = JSON.parse(text(res));
+  assert.equal(body.data.emailed, 'nobody');
+  assert.equal(body.data.imports[0].from, 'cdn.example.com', 'the host, never the signed URL');
+  assert.ok(!JSON.stringify(body).includes('sig=secret'), 'the signed query never comes back');
+  assert.deepEqual(finalized[0]?.input, {}, 'finalized with no recipients');
+  const st = await client.callTool({ name: 'get_import_status', arguments: { fileIds: ['imp0'] } });
+  assert.equal(JSON.parse(text(st)).data.imports[0].status, 'importing');
 });
