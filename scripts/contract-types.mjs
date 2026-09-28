@@ -42,6 +42,12 @@ const MAP = {
   // What `/events` returns. The bare `WebhookEvent` is the push payload, which
   // has no `deliveryId` and no schema of its own.
   PulledWebhookEvent: 'WebhookEvent',
+  DownloadLink: 'DownloadLink',
+  DownloadLinks: 'DownloadLinks',
+  ImportStarted: 'ImportStarted',
+  ImportStatus: 'Import',
+  UploadRequest: 'UploadRequest',
+  Submission: 'Submission',
 };
 
 /**
@@ -51,6 +57,7 @@ const MAP = {
 const CAUTIOUS = {
   'Me.key.via': 'absent on servers before 2026-09-26; callers compare with `===`, never assume presence',
   'Me.key.canEmail': 'absent on servers before 2026-09-26; the CLI tests `=== false`, so absent means "may email"',
+  'UploadTarget.uploadTokenExpiresAt': 'absent on servers before 2026-09-29; the keeper reads the expiry from the token itself',
 };
 
 const strict = process.argv.includes('--strict') || process.env.CONTRACT_STRICT === '1';

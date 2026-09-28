@@ -8,6 +8,9 @@ import type {
   DownloadLinks,
   ImportInput,
   ImportStatus,
+  Submission,
+  UploadRequest,
+  UploadRequestInput,
   FileInput,
   Folder,
   Guest,
@@ -469,6 +472,31 @@ export class YungleClient {
     page: PageOptions = {},
   ): Promise<{ events: PulledWebhookEvent[]; nextCursor: string | null; hasMore: boolean }> {
     return this.request('GET', `/webhooks/${enc(id)}/events${pageQuery(page)}`);
+  }
+
+  // ── Upload requests ───────────────────────────────────────────────────────
+
+  /** Your upload links, newest first (up to 100). */
+  listRequests(): Promise<{ requests: UploadRequest[] }> {
+    return this.request('GET', '/requests');
+  }
+
+  /**
+   * A public page where anyone with the link can upload into one of your
+   * collections. Subscribe to the `request.submitted` webhook to hear about
+   * each finished submission.
+   */
+  createRequest(input: UploadRequestInput): Promise<{ request: UploadRequest }> {
+    return this.request('POST', '/requests', input);
+  }
+
+  getRequest(id: string): Promise<{ request: UploadRequest; submissions: Submission[] }> {
+    return this.request('GET', `/requests/${enc(id)}`);
+  }
+
+  /** `paused` stops uploads until set back to `active`; `closed` stops them for good. */
+  setRequestStatus(id: string, status: UploadRequest['status']): Promise<{ request: UploadRequest }> {
+    return this.request('PATCH', `/requests/${enc(id)}`, { status });
   }
 
   // ── Contacts ──────────────────────────────────────────────────────────────

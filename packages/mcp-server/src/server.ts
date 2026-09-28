@@ -198,6 +198,44 @@ export function createServer(
     async () => ok(wrapUntrusted(await client.listContacts())),
   );
 
+  server.registerTool(
+    'list_upload_requests',
+    {
+      title: 'Upload requests',
+      description:
+        'Answers: which upload links do I have out? has anyone sent files through them? Returns each ' +
+        'public upload page that feeds a collection, with its link, status and how much has arrived.',
+      inputSchema: {},
+      annotations: { title: 'Upload requests', readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return ok(wrapUntrusted(await client.listRequests()));
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    },
+  );
+
+  server.registerTool(
+    'get_upload_request',
+    {
+      title: 'Upload request detail',
+      description:
+        'Answers: who has uploaded through this link, when, and how much? Returns the request and its ' +
+        'submissions, newest first, with the name, email and note each uploader typed.',
+      inputSchema: { id: z.string().describe('Upload request id.') },
+      annotations: { title: 'Upload request detail', readOnlyHint: true },
+    },
+    async ({ id }) => {
+      try {
+        return ok(wrapUntrusted(await client.getRequest(id)));
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    },
+  );
+
   // ── Getting files out ─────────────────────────────────────────────────────
 
   const whichSource = {

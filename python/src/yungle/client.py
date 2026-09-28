@@ -334,6 +334,45 @@ class Yungle:
 
     # ── Contacts ──────────────────────────────────────────────────────────────
 
+    # ── Upload requests ───────────────────────────────────────────────────────
+
+    def list_requests(self) -> dict[str, Any]:
+        """Your upload links (file requests), newest first."""
+        return self._request("GET", "/requests")
+
+    def create_request(
+        self,
+        collection_id: str,
+        title: str,
+        *,
+        message: Optional[str] = None,
+        password: Optional[str] = None,
+        required_items: Optional[Sequence[str]] = None,
+        expires_at: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """A public page where anyone with the link can upload into the collection."""
+        return self._request(
+            "POST",
+            "/requests",
+            json=_drop_none(
+                {
+                    "collectionId": collection_id,
+                    "title": title,
+                    "message": message,
+                    "password": password,
+                    "requiredItems": list(required_items) if required_items else None,
+                    "expiresAt": expires_at,
+                }
+            ),
+        )
+
+    def get_request(self, id: str) -> dict[str, Any]:
+        return self._request("GET", f"/requests/{_enc(id)}")
+
+    def set_request_status(self, id: str, status: str) -> dict[str, Any]:
+        """``active``, ``paused`` or ``closed``."""
+        return self._request("PATCH", f"/requests/{_enc(id)}", json={"status": status})
+
     def list_contacts(self) -> dict[str, Any]:
         return self._request("GET", "/contacts")
 

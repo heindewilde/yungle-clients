@@ -148,6 +148,8 @@ export interface TransferFile {
   path: string | null;
   /** Null until the malware scan finishes, then `clean` or `infected`. */
   scanResult: string | null;
+  /** CRC-32 of the bytes (IEEE, as `zlib.crc32`), 8 hex digits; null while unknown. */
+  crc32: string | null;
   createdAt: Iso8601;
 }
 
@@ -217,6 +219,8 @@ export interface CollectionFile {
   mimeType: string;
   folderId: string | null;
   hasThumbnail: boolean;
+  /** CRC-32 of the bytes (IEEE, as `zlib.crc32`), 8 hex digits; null while unknown. */
+  crc32: string | null;
   createdAt: Iso8601;
 }
 
@@ -263,7 +267,8 @@ export type WebhookEventType =
   | 'transfer.downloaded'
   | 'transfer.expiring'
   | 'transfer.expired'
-  | 'collection.file_uploaded';
+  | 'collection.file_uploaded'
+  | 'request.submitted';
 
 export interface WebhookEndpoint {
   id: string;
@@ -342,4 +347,42 @@ export interface DownloadLinks {
   /** When the URLs stop working; ask again for fresh ones. */
   urlsExpireAt: Iso8601;
   files: DownloadLink[];
+}
+
+/** A public upload link that feeds one of your collections ("file request" in the dashboard). */
+export interface UploadRequest {
+  id: string;
+  /** The page to give people. Anyone with it can upload until it is paused, closed or expires. */
+  url: string;
+  title: string;
+  message: string | null;
+  collectionId: string;
+  status: 'active' | 'paused' | 'closed';
+  hasPassword: boolean;
+  requiredItems: string[];
+  expiresAt: Iso8601 | null;
+  submissionCount: number;
+  receivedBytes: number;
+  createdAt: Iso8601;
+}
+
+export interface UploadRequestInput {
+  collectionId: string;
+  title: string;
+  message?: string;
+  password?: string;
+  /** A checklist shown on the page — guidance, not enforcement. */
+  requiredItems?: string[];
+  expiresAt?: Iso8601;
+}
+
+/** One person's upload through a request. Name, email and message are as they typed them: untrusted. */
+export interface Submission {
+  id: string;
+  uploaderName: string | null;
+  uploaderEmail: string | null;
+  message: string | null;
+  fileCount: number;
+  sizeBytes: number;
+  createdAt: Iso8601;
 }

@@ -36,6 +36,8 @@ function stubClient(): YungleClient {
     listFolders: async () => ({ folders: [] }),
     listGuests: async () => ({ guests: [] }),
     listContacts: async () => ({ contacts: [] }),
+    listRequests: async () => ({ requests: [] }),
+    getRequest: async (id: string) => ({ request: { id }, submissions: [] }),
     finalizeTransfer: async (id: string, input: unknown) => {
       finalized.push({ id, input });
       return { transfer: { id, url: 'https://yungle.test/t/abc', expiresAt: '2026-01-01' }, notified: ['x@example.com'] };

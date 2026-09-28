@@ -115,6 +115,8 @@ export async function main(argvIn: string[]): Promise<number> {
         return await collections(flags, json);
       case 'contacts':
         return await contacts(flags, json);
+      case 'requests':
+        return await requests(positionals, flags, json);
       case 'revoke':
         return await revoke(positionals, flags, json);
       case 'push':
@@ -681,6 +683,61 @@ async function collections(flags: Flags, json: boolean): Promise<number> {
     ),
     collections.map((c) => `${c.id}\t${c.title}`).join('\n'),
   );
+}
+
+/**
+ * `yungle requests` — upload links that feed a collection.
+ *   requests                       list them
+ *   requests new --collection <id> --title <text> [--message] [--password]
+ *   requests pause|resume|close <id>
+ *   requests show <id>             who has sent what
+ */
+async function requests(positionals: string[], flags: Flags, json: boolean): Promise<number> {
+  const api = client(flags);
+  const [sub, id] = positionals;
+  if (!sub) {
+    const { requests: rows } = await api.listRequests();
+    if (rows.length === 0) return out(json, { requests: rows }, '  No upload requests yet. yungle requests new --collection <id> --title "…"', '');
+    return out(
+      json,
+      { requests: rows },
+      table(
+        rows.map((r) => [o.dim(r.id), r.title, r.status, plural(r.submissionCount, 'submission'), formatBytes(r.receivedBytes), accentOut(r.url)]),
+        { flex: 1, header: ['ID', 'Title', 'Status', 'Received', 'Size', 'Link'] },
+      ),
+      rows.map((r) => `${r.id}\t${r.url}`).join('\n'),
+    );
+  }
+  if (sub === 'new') {
+    const collectionId = stringFlag(flags.collection);
+    const title = stringFlag(flags.title);
+    if (!collectionId || !title) throw new CliError('Which collection, and what should the page say?', 'yungle requests new --collection <id> --title "Send us your raw footage"', 'usage', 2);
+    const { request } = await api.createRequest({
+      collectionId,
+      title,
+      ...(stringFlag(flags.message) ? { message: stringFlag(flags.message) } : {}),
+      ...(stringFlag(flags.password) ? { password: stringFlag(flags.password) } : {}),
+    });
+    return out(json, { request }, success(`Upload request “${request.title}” is live`, [accentOut(request.url), o.dim('Anyone with the link can upload into the collection.')]), request.url);
+  }
+  if (sub === 'show' && id) {
+    const { request, submissions } = await api.getRequest(id);
+    return out(
+      json,
+      { request, submissions },
+      [
+        `  ${o.bold(request.title)}  ${o.dim(request.status)}  ${accentOut(request.url)}`,
+        ...(submissions.length === 0
+          ? ['  Nothing received yet.']
+          : [table(submissions.map((s) => [formatDate(s.createdAt), s.uploaderName ?? o.dim('—'), s.uploaderEmail ?? '', plural(s.fileCount, 'file'), formatBytes(s.sizeBytes)]), { flex: 1, header: ['When', 'From', 'Email', 'Files', 'Size'] })]),
+      ].join('\n'),
+      submissions.map((s) => `${s.id}\t${s.fileCount}`).join('\n'),
+    );
+  }
+  const status = ({ pause: 'paused', resume: 'active', close: 'closed' } as const)[sub as 'pause' | 'resume' | 'close'];
+  if (!status || !id) throw new CliError(`Unknown: requests ${sub}`, 'yungle requests [new|show|pause|resume|close]', 'usage', 2);
+  const { request } = await api.setRequestStatus(id, status);
+  return out(json, { request }, success(`“${request.title}” is ${request.status}`), request.status);
 }
 
 async function contacts(flags: Flags, json: boolean): Promise<number> {

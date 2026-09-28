@@ -44,6 +44,10 @@ Collections
     --interval <seconds>  how often to look (default 10)
     --existing            also upload what is already in the folder
   yungle collections                      list your collections
+  yungle requests                         list upload links that feed your collections
+  yungle requests new --collection <id>   make one, and print the link to give people
+    --title <text>        shown on the upload page
+  yungle requests pause|resume|close <id> stop or restart uploads through one
   yungle contacts                         list your contacts
 
 In the browser
@@ -83,6 +87,7 @@ export const COMMANDS = [
   'pull',
   'watch',
   'collections',
+  'requests',
   'contacts',
   'open',
   'webhooks',
