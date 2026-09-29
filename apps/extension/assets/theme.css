@@ -1,0 +1,251 @@
+/*
+ * yungle.co's design tokens and the handful of components the extension uses.
+ * Values copied from apps/web/app/globals.css (light "Fresh & bright", dark
+ * "moonlit navy"); the extension follows the OS theme rather than a toggle.
+ *
+ * Fonts: the site's Pally and Satoshi are Fontshare fonts whose licence does
+ * not allow shipping them inside a distributed extension or a public repo, so
+ * text uses the system stack and the wordmark is an image.
+ */
+
+:root {
+  color-scheme: light;
+  --c-forest: #f4f7f2;
+  --c-surface: #ffffff;
+  --c-surface-2: #eef3ec;
+  --c-hairline: #dde6dd;
+  --c-emerald: #3ea76a;
+  --c-emerald-deep: #2e8b57;
+  --c-mint: #1e2b24;
+  --c-mist: #4b5a52;
+  --c-muted: #7a897f;
+  --c-on-accent: #ffffff;
+  --c-danger: #c2410c;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --font-body: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --c-forest: #121b25;
+    --c-surface: #1a2734;
+    --c-surface-2: #21313f;
+    --c-hairline: #2d3f4f;
+    --c-mint: #eaf1f5;
+    --c-mist: #a6b6c2;
+    --c-muted: #6d7f8c;
+    --c-danger: #fb923c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--c-forest);
+  color: var(--c-mint);
+  font: 14px/1.45 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: var(--c-emerald-deep);
+}
+
+.muted {
+  color: var(--c-mist);
+}
+.faint {
+  color: var(--c-muted);
+  font-size: 12px;
+}
+
+.card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-hairline);
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(30, 43, 36, 0.04),
+    0 14px 34px -22px rgba(30, 43, 36, 0.14);
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font: inherit;
+  font-weight: 500;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 9px 18px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.25s var(--ease-out-expo);
+  text-decoration: none;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn-primary {
+  background: var(--c-emerald);
+  color: var(--c-on-accent);
+  font-weight: 700;
+}
+.btn-primary:not(:disabled):hover {
+  background: var(--c-emerald-deep);
+  box-shadow: 0 10px 22px -12px color-mix(in oklab, var(--c-emerald) 55%, transparent);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--c-mist);
+  border-color: var(--c-hairline);
+}
+.btn-ghost:not(:disabled):hover {
+  color: var(--c-mint);
+  border-color: color-mix(in oklab, var(--c-emerald) 45%, var(--c-hairline));
+  background: var(--c-surface-2);
+}
+.btn-small {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.btn-block {
+  width: 100%;
+}
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--c-mist);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Fields ── */
+.input,
+.textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--c-mint);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-hairline);
+  padding: 9px 16px;
+  outline: none;
+}
+.input {
+  border-radius: 999px;
+}
+.textarea {
+  border-radius: 16px;
+  resize: vertical;
+  min-height: 72px;
+}
+.input:focus,
+.textarea:focus {
+  border-color: color-mix(in oklab, var(--c-emerald) 60%, transparent);
+}
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--c-muted);
+}
+.label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-mist);
+  margin: 0 0 6px 4px;
+}
+:focus-visible {
+  outline: 2px solid var(--c-emerald);
+  outline-offset: 2px;
+}
+
+/* ── Pieces ── */
+.wordmark {
+  display: block;
+  height: 22px;
+  width: auto;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-hairline);
+  border-radius: 999px;
+  padding: 3px 6px 3px 10px;
+  font-size: 12px;
+}
+.chip button {
+  border: 0;
+  background: none;
+  color: var(--c-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--c-surface-2);
+  overflow: hidden;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  background: var(--c-emerald);
+  border-radius: 999px;
+  transition: width 0.3s var(--ease-out-expo);
+}
+.error {
+  color: var(--c-danger);
+}
+.switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.switch input {
+  accent-color: var(--c-emerald);
+  margin-top: 3px;
+}
+.stack > * + * {
+  margin-top: 12px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}

@@ -83,6 +83,11 @@ export interface Transfer {
   fileCount?: number;
   recipients: string[];
   hasPassword: boolean;
+  /**
+   * End-to-end encrypted: the working link carries a key Yungle never holds,
+   * so `url` alone does not open it. Absent on servers before 2026-09-29.
+   */
+  e2ee?: boolean;
   downloadCount: number;
   maxDownloads: number | null;
   /** Null while it is still a draft. A draft is not shareable. */

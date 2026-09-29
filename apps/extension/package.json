@@ -1,0 +1,36 @@
+{
+  "name": "yungle-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Send big files from your browser, and from Gmail and Outlook, with Yungle.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build && wxt build -b firefox --mv3",
+    "zip": "wxt zip && wxt zip -b firefox --mv3",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "postinstall": "wxt prepare",
+    "e2e:build": "WXT_E2E=1 WXT_YUNGLE_ORIGIN=http://localhost:3002 WXT_YUNGLE_TUS_ORIGIN=http://localhost:4002 wxt build"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tus-js-client": "^4.3.1",
+    "yungle-client": "workspace:*",
+    "yungle-e2e": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@wxt-dev/module-react": "^1",
+    "jsdom": "^26",
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.2",
+    "wxt": "^0.21.4"
+  }
+}

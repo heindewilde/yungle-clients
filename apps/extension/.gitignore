@@ -1,0 +1,6 @@
+.output/
+.output-e2e/
+.wxt/
+stats.html
+test-results/
+playwright-report/
