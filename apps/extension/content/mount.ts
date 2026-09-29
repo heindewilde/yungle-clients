@@ -1,3 +1,6 @@
+// Inlined as a data URL: the content script runs in Gmail's page, and a file
+// URL would have to be exposed to those sites as a web-accessible resource.
+import wordmark from '@/assets/wordmark.png?inline';
 import { isComposeMessage } from '@/lib/compose-protocol';
 import type { Adapter, ComposeTarget } from './adapters';
 
@@ -35,7 +38,12 @@ export function run(adapter: Adapter): void {
 function attach({ editor, toolbar }: ComposeTarget): void {
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = 'Yungle';
+  const logo = document.createElement('img');
+  logo.src = wordmark;
+  logo.alt = '';
+  // The wordmark is green; white on the green pill, like a primary button.
+  Object.assign(logo.style, { height: '17px', width: 'auto', display: 'block', filter: 'brightness(0) invert(1)' });
+  button.appendChild(logo);
   button.title = 'Send big files with Yungle';
   button.setAttribute('aria-label', 'Send big files with Yungle');
   Object.assign(button.style, {
@@ -44,7 +52,9 @@ function attach({ editor, toolbar }: ComposeTarget): void {
     background: '#3ea76a',
     border: '0',
     borderRadius: '999px',
-    padding: '7px 12px',
+    padding: '9px 16px 10px',
+    display: 'inline-flex',
+    alignItems: 'center',
     margin: '0 6px',
     cursor: 'pointer',
   } satisfies Partial<CSSStyleDeclaration>);
