@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'wxt';
 
 /**
@@ -31,6 +32,13 @@ const E2E = process.env.WXT_E2E === '1';
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   outDir: E2E ? '.output-e2e' : '.output',
+  // AMO rebuilds what it reviews, and this build needs the workspace's
+  // `yungle-client` and `yungle-e2e` — so the source zip is the whole repo.
+  // Build instructions: README.md, "Reproducing the Firefox build".
+  zip: {
+    sourcesRoot: resolve(import.meta.dirname, '../..'),
+    excludeSources: ['python/**', 'examples/**', '**/.output*/**', '**/test-results/**', '**/dist/**', '.github/**'],
+  },
   hooks: {
     // WXT adds a runtime content script's `matches` to the REQUIRED host
     // permissions. These must stay optional — asked for when the compose button

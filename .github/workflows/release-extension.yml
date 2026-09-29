@@ -1,0 +1,36 @@
+name: release-extension
+# The browser extension ships to the Chrome Web Store and Firefox Add-ons, not
+# npm. A tag `extension-v<version>` (matching apps/extension/package.json)
+# builds the store packages and attaches them to a GitHub release; uploading
+# them to the two stores is done by hand from that release.
+on:
+  push:
+    tags: ['extension-v*']
+permissions:
+  contents: write
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Tag matches the package version
+        run: |
+          want="extension-v$(node -p "require('./apps/extension/package.json').version")"
+          [ "$GITHUB_REF_NAME" = "$want" ] || { echo "tag $GITHUB_REF_NAME != $want"; exit 1; }
+      - run: pnpm --filter yungle-extension typecheck
+      - run: pnpm --filter yungle-extension test
+      # Chrome zip, Firefox zip, and the source zip AMO asks for when the
+      # submitted code is built rather than hand-written.
+      - run: pnpm --filter yungle-extension zip
+      - name: The webmail hosts stayed optional
+        run: |
+          for m in apps/extension/.output/chrome-mv3/manifest.json apps/extension/.output/firefox-mv3/manifest.json; do
+            node -e "const m=require('./$m');const bad=(m.host_permissions||[]).filter(h=>!h.startsWith('https://yungle.co'));if(bad.length){console.error('$m requires',bad);process.exit(1)}"
+          done
+      - name: Release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release create "$GITHUB_REF_NAME" apps/extension/.output/*.zip --title "Browser extension ${GITHUB_REF_NAME#extension-v}" --notes "Store packages for Chrome (and Edge/Brave) and Firefox, plus the source zip for AMO review."

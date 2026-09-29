@@ -152,7 +152,7 @@ function confirmLeave(): boolean {
 /**
  * Put the link where the caret was. `execCommand` is deprecated but it is the
  * one insertion both editors treat as typing — undo works, and their own state
- * (drafts, autosave) sees the change. A plain DOM insert is the fallback.
+ * (drafts, autosave) sees the change. A plain-text node is the fallback.
  */
 export function insert(editor: HTMLElement, saved: Range | null, html: string, text: string): void {
   editor.focus();
@@ -169,12 +169,11 @@ export function insert(editor: HTMLElement, saved: Range | null, html: string, t
   }
   const ok = html ? document.execCommand('insertHTML', false, `${html}<br>`) : document.execCommand('insertText', false, `${text} `);
   if (ok) return;
+  // The editor refused. Fall back to the plain line as a text node — never
+  // parse HTML into someone else's page by hand.
+  const node = document.createTextNode(`${text} `);
   const range = sel?.rangeCount ? sel.getRangeAt(0) : null;
-  const node = html ? range?.createContextualFragment(html) : document.createTextNode(`${text} `);
-  if (range && node) {
-    range.insertNode(node);
-    editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
-  } else {
-    editor.append(html ? document.createRange().createContextualFragment(html) : text);
-  }
+  if (range) range.insertNode(node);
+  else editor.append(node);
+  editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
 }
