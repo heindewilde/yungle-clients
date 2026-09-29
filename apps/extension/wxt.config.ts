@@ -63,7 +63,9 @@ export default defineConfig({
           browser_specific_settings: {
             gecko: {
               id: 'browser@yungle.co',
-              strict_min_version: '128.0',
+              // 140: the first release that honours data_collection_permissions (an
+              // older one would silently ignore the declaration), and the current ESR.
+              strict_min_version: '140.0',
               // Declared, and shown at install: the sign-in, and the recipient
               // addresses and message a person types to send. All go only to
               // Yungle, to do what they asked. Nothing else leaves the browser.
