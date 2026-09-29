@@ -1,6 +1,6 @@
 // Inlined as a data URL: the content script runs in Gmail's page, and a file
 // URL would have to be exposed to those sites as a web-accessible resource.
-import wordmark from '@/assets/wordmark.png?inline';
+import mark from '@/assets/mark.png?inline';
 import { isComposeMessage } from '@/lib/compose-protocol';
 import type { Adapter, ComposeTarget } from './adapters';
 
@@ -13,6 +13,7 @@ import type { Adapter, ComposeTarget } from './adapters';
  */
 
 const MARK = 'data-yungle';
+const floatBg = 'rgba(255, 255, 255, 0.92)';
 
 export function run(adapter: Adapter): void {
   const scan = () => {
@@ -36,28 +37,59 @@ export function run(adapter: Adapter): void {
 }
 
 function attach({ editor, toolbar }: ComposeTarget): void {
+  // Quiet on purpose: a small "y" in the toolbar's own grey, like Gmail's
+  // attach and Drive icons, that turns Yungle green on hover. It is there when
+  // needed without competing with Send on every email.
   const button = document.createElement('button');
   button.type = 'button';
-  const logo = document.createElement('img');
-  logo.src = wordmark;
-  logo.alt = '';
-  // The wordmark is green; white on the green pill, like a primary button.
-  Object.assign(logo.style, { height: '17px', width: 'auto', display: 'block', filter: 'brightness(0) invert(1)' });
-  button.appendChild(logo);
   button.title = 'Send big files with Yungle';
   button.setAttribute('aria-label', 'Send big files with Yungle');
+  // The glyph is a mask filled with `currentColor`, so one image serves any
+  // colour — including a dark Gmail or Outlook theme.
+  const glyph = document.createElement('span');
+  Object.assign(glyph.style, {
+    display: 'block',
+    width: '18px',
+    height: '18px',
+    backgroundColor: 'currentColor',
+    maskImage: `url("${mark}")`,
+    maskSize: 'contain',
+    maskRepeat: 'no-repeat',
+    maskPosition: 'center',
+    webkitMaskImage: `url("${mark}")`,
+    webkitMaskSize: 'contain',
+    webkitMaskRepeat: 'no-repeat',
+    webkitMaskPosition: 'center',
+  } satisfies Partial<CSSStyleDeclaration>);
+  button.appendChild(glyph);
+  // The editor's text colour tells us the theme; dimmed, it matches the icons.
+  const rest = getComputedStyle(editor).color || '#5f6368';
   Object.assign(button.style, {
-    font: '600 13px/1 system-ui, sans-serif',
-    color: '#ffffff',
-    background: '#3ea76a',
-    border: '0',
-    borderRadius: '999px',
-    padding: '9px 16px 10px',
     display: 'inline-flex',
     alignItems: 'center',
-    margin: '0 6px',
+    justifyContent: 'center',
+    width: '32px',
+    height: '32px',
+    padding: '0',
+    margin: '0 4px',
+    border: '0',
+    borderRadius: '50%',
+    background: 'transparent',
+    color: rest,
+    opacity: '0.7',
     cursor: 'pointer',
+    verticalAlign: 'middle',
+    transition: 'color .15s, background-color .15s, opacity .15s',
   } satisfies Partial<CSSStyleDeclaration>);
+  const lit = (on: boolean) => {
+    button.style.color = on ? '#3ea76a' : rest;
+    button.style.opacity = on ? '1' : '0.7';
+    button.style.backgroundColor = on ? 'rgba(127, 127, 127, 0.14)' : button.dataset.float ? floatBg : 'transparent';
+  };
+  button.addEventListener('mouseenter', () => lit(true));
+  button.addEventListener('mouseleave', () => lit(false));
+  button.addEventListener('focus', () => lit(true));
+  button.addEventListener('blur', () => lit(false));
 
   let saved: Range | null = null;
   // mousedown, not click: by click time focus has left the editor and the
@@ -77,8 +109,15 @@ function attach({ editor, toolbar }: ComposeTarget): void {
     cell.appendChild(button);
     return;
   }
-  // Fallback: float on the editor's bottom-right corner, following it.
-  Object.assign(button.style, { position: 'fixed', zIndex: '2147483000', boxShadow: '0 4px 14px rgba(0,0,0,.18)' });
+  // Fallback: float on the editor's bottom-right corner, following it. Over
+  // text an icon needs its own small surface to stay legible.
+  button.dataset.float = '1';
+  Object.assign(button.style, {
+    position: 'fixed',
+    zIndex: '2147483000',
+    background: floatBg,
+    boxShadow: '0 1px 4px rgba(0,0,0,.2)',
+  } satisfies Partial<CSSStyleDeclaration>);
   document.body.appendChild(button);
   const place = () => {
     if (!editor.isConnected) {
