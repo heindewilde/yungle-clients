@@ -9,11 +9,12 @@ from urllib.parse import quote
 
 import httpx
 
-from .errors import YungleError
+from .errors import YungleError, parse_retry_after
+from .download import download_links
 from .upload import upload_file
 
 DEFAULT_BASE = "https://yungle.co/api/v1"
-_VERSION = "0.1.0"
+_VERSION = "0.2.0"
 
 
 def _enc(value: str) -> str:
@@ -55,6 +56,12 @@ class Yungle:
             "User-Agent": f"yungle-python/{_VERSION}",
         }
 
+    @property
+    def renew_url(self) -> str:
+        """Where upload tokens are renewed: outside ``/api/v1``, on the same site."""
+        origin = self.base_url[: -len("/api/v1")] if self.base_url.endswith("/api/v1") else self.base_url
+        return f"{origin}/api/uploads/token"
+
     def close(self) -> None:
         self._http.close()
 
@@ -68,8 +75,9 @@ class Yungle:
 
     def send(
         self,
-        paths: Sequence[str],
+        paths: Sequence[str] = (),
         *,
+        urls: Sequence[str] = (),
         to: Sequence[str] = (),
         message: Optional[str] = None,
         title: Optional[str] = None,
@@ -80,11 +88,21 @@ class Yungle:
         Create a transfer, upload the files resumably, send it, and return the
         finalized transfer (``url``, ``expiresAt``, …). With no ``to`` it is a
         link only; nobody is emailed.
+
+        ``urls`` are files Yungle fetches itself (a presigned S3 link, a CDN
+        URL), so their bytes never pass through this process. They are waited
+        for before sending; a failed one raises ``RuntimeError`` and nothing is sent.
         """
         files = [{"name": os.path.basename(p), "size": os.path.getsize(p)} for p in paths]
-        draft = self.create_transfer(files, title=title, expires_in_days=expires_in_days)
+        draft = self.create_transfer(
+            files, imports=[{"url": u} for u in urls], title=title, expires_in_days=expires_in_days
+        )
         for target, path in zip(draft["files"], paths):
-            upload_file(draft["tusEndpoint"], target, path, http=self._http)
+            upload_file(draft["tusEndpoint"], target, path, http=self._http, renew_url=self.renew_url)
+        imported = self.wait_for_imports([i["fileId"] for i in draft.get("imports", [])])
+        failed = [i for i in imported if i["status"] == "failed"]
+        if failed:
+            raise RuntimeError("Could not fetch " + ", ".join(f"{i['name']} ({i.get('error')})" for i in failed))
         sent = self.finalize_transfer(
             draft["transfer"]["id"], recipients=list(to), message=message, password=password
         )
@@ -111,12 +129,36 @@ class Yungle:
                 return
 
     def create_transfer(
-        self, files: Sequence[dict[str, Any]], *, title: Optional[str] = None, expires_in_days: Optional[int] = None
+        self,
+        files: Sequence[dict[str, Any]] = (),
+        *,
+        imports: Sequence[dict[str, Any]] = (),
+        title: Optional[str] = None,
+        expires_in_days: Optional[int] = None,
     ) -> dict[str, Any]:
-        """A draft plus upload targets. Nothing is live until ``finalize_transfer``."""
+        """
+        A draft plus upload targets. Nothing is live until ``finalize_transfer``.
+        ``imports`` (``{"url": …, "name"?: …, "path"?: …}``) are fetched by Yungle.
+        """
         return self._request(
-            "POST", "/transfers", json=_drop_none({"files": list(files), "title": title, "expiresInDays": expires_in_days})
+            "POST",
+            "/transfers",
+            json=_drop_none(
+                {"files": list(files), "imports": list(imports) or None, "title": title, "expiresInDays": expires_in_days}
+            ),
         )
+
+    def get_import(self, file_id: str) -> dict[str, Any]:
+        """Where a URL import stands: ``importing`` (with ``receivedBytes``), ``ready`` or ``failed``."""
+        return self._request("GET", f"/imports/{_enc(file_id)}")
+
+    def wait_for_imports(self, file_ids: Sequence[str], interval: float = 5.0) -> list[dict[str, Any]]:
+        """Poll until every import is ``ready`` or ``failed``; returns the final statuses."""
+        while True:
+            statuses = [self.get_import(i) for i in file_ids]
+            if all(s["status"] != "importing" for s in statuses):
+                return statuses
+            time.sleep(interval)
 
     def get_transfer(self, id: str) -> dict[str, Any]:
         return self._request("GET", f"/transfers/{_enc(id)}")
@@ -133,8 +175,12 @@ class Yungle:
         body = _drop_none({"recipients": list(recipients) or None, "message": message, "password": password, "title": title})
         return self._request("POST", f"/transfers/{_enc(id)}/finalize", json=body)
 
-    def add_transfer_files(self, id: str, files: Sequence[dict[str, Any]]) -> dict[str, Any]:
-        return self._request("POST", f"/transfers/{_enc(id)}/files", json={"files": list(files)})
+    def add_transfer_files(
+        self, id: str, files: Sequence[dict[str, Any]] = (), *, imports: Sequence[dict[str, Any]] = ()
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST", f"/transfers/{_enc(id)}/files", json=_drop_none({"files": list(files), "imports": list(imports) or None})
+        )
 
     def remove_transfer_file(self, id: str, file_id: str) -> dict[str, Any]:
         return self._request("DELETE", f"/transfers/{_enc(id)}/files/{_enc(file_id)}")
@@ -150,6 +196,32 @@ class Yungle:
     def revoke_transfer(self, id: str) -> dict[str, Any]:
         """Immediate and irreversible: the link stops working and the content is destroyed."""
         return self._request("DELETE", f"/transfers/{_enc(id)}")
+
+    def transfer_download_links(self, id: str) -> dict[str, Any]:
+        """Signed, resumable download URLs for your own transfer. Not a recipient download."""
+        return self._request("GET", f"/transfers/{_enc(id)}/download-links")
+
+    def collection_download_links(self, id: str) -> dict[str, Any]:
+        """Signed download URLs for every file in your collection, with folder ``path``s."""
+        return self._request("GET", f"/collections/{_enc(id)}/download-links")
+
+    def resolve_link(self, url: str, *, password: Optional[str] = None) -> dict[str, Any]:
+        """
+        A link someone shared with you (``…/t/…`` or ``…/c/…``) as signed download
+        URLs, under the same rules as opening it in a browser.
+        """
+        return self._request("POST", "/links/resolve", json={"url": url, **({"password": password} if password else {})})
+
+    def download(self, links_or_url: Any, out_dir: str = ".", *, password: Optional[str] = None,
+                 on_progress: Optional[Any] = None) -> list[str]:
+        """
+        Save a shared link, or links you already fetched, into ``out_dir`` —
+        resumably, keeping folders, skipping files already there.
+
+        >>> yungle.download("https://yungle.co/t/k3v9…", "incoming/")
+        """
+        links = self.resolve_link(links_or_url, password=password) if isinstance(links_or_url, str) else links_or_url
+        return download_links(links, out_dir, on_progress=on_progress)
 
     def transfer_downloads(self, id: str) -> dict[str, Any]:
         return self._request("GET", f"/transfers/{_enc(id)}/downloads")
@@ -192,9 +264,18 @@ class Yungle:
                 return
 
     def add_collection_files(
-        self, id: str, files: Sequence[dict[str, Any]], *, folder_id: Optional[str] = None
+        self,
+        id: str,
+        files: Sequence[dict[str, Any]] = (),
+        *,
+        folder_id: Optional[str] = None,
+        imports: Sequence[dict[str, Any]] = (),
     ) -> dict[str, Any]:
-        return self._request("POST", f"/collections/{_enc(id)}/files", json=_drop_none({"files": list(files), "folderId": folder_id}))
+        return self._request(
+            "POST",
+            f"/collections/{_enc(id)}/files",
+            json=_drop_none({"files": list(files), "folderId": folder_id, "imports": list(imports) or None}),
+        )
 
     def delete_collection_files(self, id: str, file_ids: Sequence[str]) -> dict[str, Any]:
         return self._request("DELETE", f"/collections/{_enc(id)}/files", json={"fileIds": list(file_ids)})
@@ -253,6 +334,45 @@ class Yungle:
 
     # ── Contacts ──────────────────────────────────────────────────────────────
 
+    # ── Upload requests ───────────────────────────────────────────────────────
+
+    def list_requests(self) -> dict[str, Any]:
+        """Your upload links (file requests), newest first."""
+        return self._request("GET", "/requests")
+
+    def create_request(
+        self,
+        collection_id: str,
+        title: str,
+        *,
+        message: Optional[str] = None,
+        password: Optional[str] = None,
+        required_items: Optional[Sequence[str]] = None,
+        expires_at: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """A public page where anyone with the link can upload into the collection."""
+        return self._request(
+            "POST",
+            "/requests",
+            json=_drop_none(
+                {
+                    "collectionId": collection_id,
+                    "title": title,
+                    "message": message,
+                    "password": password,
+                    "requiredItems": list(required_items) if required_items else None,
+                    "expiresAt": expires_at,
+                }
+            ),
+        )
+
+    def get_request(self, id: str) -> dict[str, Any]:
+        return self._request("GET", f"/requests/{_enc(id)}")
+
+    def set_request_status(self, id: str, status: str) -> dict[str, Any]:
+        """``active``, ``paused`` or ``closed``."""
+        return self._request("PATCH", f"/requests/{_enc(id)}", json={"status": status})
+
     def list_contacts(self) -> dict[str, Any]:
         return self._request("GET", "/contacts")
 
@@ -304,11 +424,14 @@ def _to_error(res: httpx.Response) -> YungleError:
         body = res.json().get("error") or {}
     except Exception:
         body = {}
+    docs = body.get("docs")
     return YungleError(
         res.status_code,
         body.get("code", "http_error"),
         body.get("message", f"Request failed with status {res.status_code}."),
         body.get("details"),
+        docs=docs if isinstance(docs, str) else None,
+        retry_after_header=parse_retry_after(res.headers.get("retry-after")),
     )
 
 

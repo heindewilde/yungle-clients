@@ -1,5 +1,7 @@
 import * as tus from 'tus-js-client';
+import { createTokenKeeper, renewUploadToken } from 'yungle-client';
 import { createCiphertextSource, createE2eFileReader, serverChunkSize } from 'yungle-e2e';
+import { ORIGIN } from './config';
 
 /**
  * One file, streamed to Yungle's tus endpoint. Ported from the website's
@@ -12,6 +14,10 @@ import { createCiphertextSource, createE2eFileReader, serverChunkSize } from 'yu
  *   the offset stop advancing and the client re-send forever.
  * - `Upload-Metadata` travels in the clear, so an encrypted upload's filename
  *   there is a placeholder.
+ * - Upload tokens live two hours. A big file on a home connection outlasts
+ *   that, so a keeper renews the token at half-life (the SDK's schedule, the
+ *   same as the website's and the CLI's) and every request sends the current
+ *   one. Renewing also tells the server the upload is alive.
  */
 
 export interface UploadTarget {
@@ -41,6 +47,8 @@ export function uploadFile(
   e2e?: E2eMaterial,
 ): Promise<void> {
   const ciphertextSize = e2e ? createCiphertextSource(file, e2e).size : null;
+  // The credential here is the upload token itself, not the OAuth token.
+  const keeper = createTokenKeeper(target.uploadToken, { renew: (t) => renewUploadToken(ORIGIN, t) });
   return new Promise<void>((resolve, reject) => {
     const upload = new tus.Upload(file, {
       endpoint,
@@ -51,14 +59,19 @@ export function uploadFile(
       // disconnect that actually happens.
       retryDelays: [0, 1000, 3000, 5000, 10000, 15000, 20000],
       uploadSize: ciphertextSize ?? file.size,
-      headers: { 'x-yungle-upload-token': target.uploadToken },
+      // Set per request rather than fixed here: the keeper swaps in fresh tokens.
+      onBeforeRequest: (req) => req.setHeader('x-yungle-upload-token', keeper.current()),
       metadata: { fileId: target.id, token: target.uploadToken, filename: e2e ? 'encrypted' : file.name },
       onError: (err) => {
         const status = (err as tus.DetailedError).originalResponse?.getStatus() ?? 0;
+        keeper.stop();
         reject(new UploadError(status));
       },
       onProgress: (sent) => hooks.onProgress(sent),
-      onSuccess: () => resolve(),
+      onSuccess: () => {
+        keeper.stop();
+        resolve();
+      },
       onShouldRetry: (err) => {
         const status = (err as tus.DetailedError).originalResponse?.getStatus() ?? 0;
         const transient = isRetryableUploadStatus(status);
@@ -67,6 +80,7 @@ export function uploadFile(
       },
     });
     hooks.register?.(() => {
+      keeper.stop();
       void upload.abort();
       reject(new UploadError(-1));
     });

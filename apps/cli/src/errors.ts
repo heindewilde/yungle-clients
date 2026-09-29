@@ -1,4 +1,5 @@
 import { YungleApiError } from 'yungle-client';
+import { ManifestError } from './get';
 
 /**
  * Every failure, said the way a person needs it: what happened, and the one
@@ -28,10 +29,15 @@ export interface Explained {
   hint?: string;
   code: string;
   details?: Record<string, unknown>;
+  /** The process exit code; `fail` falls back to 1 (2 for usage). */
+  exitCode?: number;
 }
 
 export function explain(err: unknown): Explained {
-  if (err instanceof CliError) return { message: err.message, hint: err.hint, code: err.code };
+  if (err instanceof CliError) return { message: err.message, hint: err.hint, code: err.code, exitCode: err.exitCode };
+  // A shared link's refusal (`yungle get`): keep the server's code — `guests_only`,
+  // `password_required`, `expired` — so a script can branch on it.
+  if (err instanceof ManifestError) return { message: err.message, code: err.code };
   if (err instanceof YungleApiError) {
     const base = { code: err.code, details: err.details };
     switch (err.code) {
@@ -58,6 +64,8 @@ export function explain(err: unknown): Explained {
         };
       case 'not_found':
         return { ...base, message: err.message, hint: 'yungle transfers   (list what you have)' };
+      case 'e2ee_unsupported':
+        return { ...base, message: err.message, hint: 'Open the link in a browser; only it holds the key.' };
       case 'email_budget_exhausted':
         return { ...base, message: err.message, hint: 'Share the link yourself; the transfer is live.' };
       default:

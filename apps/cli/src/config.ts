@@ -119,11 +119,19 @@ export async function freshAccessToken(config: Config, baseUrl?: string): Promis
 export interface UploadSession {
   /** Epoch ms. Sessions expire with their upload tokens — see SESSION_TTL_MS. */
   createdAt: number;
+  /**
+   * Epoch ms of the last token renewal. A renewal is what keeps the server's
+   * reservation (and the tokens stored below) alive, so it — not `createdAt` —
+   * is what the session's life is measured from.
+   */
+  touchedAt?: number;
   kind: 'transfer' | 'collection';
   /** The draft being built, or the collection being filled. */
   targetId: string;
   tusEndpoint: string;
   files: { path: string; id: string; name: string; size: number; uploadToken: string }[];
+  /** Files Yungle is fetching from `--from-url`; a resumed run waits on these. */
+  imports?: { fileId: string; name: string; size: number }[];
 }
 
 /**
@@ -132,6 +140,8 @@ export interface UploadSession {
  * Two hours, because that is `UPLOAD_TOKEN_TTL_MS` on the server — the tokens
  * in a stored session are exactly as dead as the session is. Offering to resume
  * past that would replace a clean "starting fresh" with a 401 partway through.
+ * Measured from the last renewal: an upload that keeps renewing keeps its
+ * session resumable for as long as it runs.
  */
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 
@@ -173,7 +183,7 @@ export async function readSessions(): Promise<SessionMap> {
     const now = Date.now();
     const live: SessionMap = {};
     for (const [key, session] of Object.entries(parsed)) {
-      if (session && now - session.createdAt < SESSION_TTL_MS) live[key] = session;
+      if (session && now - (session.touchedAt ?? session.createdAt) < SESSION_TTL_MS) live[key] = session;
     }
     return live;
   } catch {
@@ -188,6 +198,21 @@ export async function findSession(key: string): Promise<UploadSession | null> {
 export async function saveSession(key: string, session: UploadSession): Promise<void> {
   const sessions = await readSessions();
   sessions[key] = session;
+  await mkdir(dirname(RESUME_PATH), { recursive: true, mode: 0o700 });
+  await writeFile(RESUME_PATH, JSON.stringify(sessions), { mode: 0o600 });
+}
+
+/**
+ * Record a renewed upload token, so a run killed after the renewal resumes with
+ * a token that still works rather than the original one, which may not.
+ */
+export async function saveRenewedToken(key: string, fileId: string, uploadToken: string): Promise<void> {
+  const sessions = await readSessions();
+  const session = sessions[key];
+  const file = session?.files.find((f) => f.id === fileId);
+  if (!session || !file) return;
+  file.uploadToken = uploadToken;
+  session.touchedAt = Date.now();
   await mkdir(dirname(RESUME_PATH), { recursive: true, mode: 0o700 });
   await writeFile(RESUME_PATH, JSON.stringify(sessions), { mode: 0o600 });
 }

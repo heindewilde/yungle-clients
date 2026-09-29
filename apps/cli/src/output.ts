@@ -24,5 +24,6 @@ export function fail(err: unknown, json: boolean): number {
     if (x.hint) process.stderr.write(`    ${e.dim(sym.arrow)} ${accentErr(x.hint)}\n`);
     process.stderr.write('\n');
   }
-  return x.code === 'usage' ? 2 : 1;
+  // 130 for a cancelled prompt, like any interrupted command; 2 for usage.
+  return x.code === 'usage' ? 2 : (x.exitCode ?? 1);
 }

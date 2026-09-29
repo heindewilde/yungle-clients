@@ -17,15 +17,17 @@ Get started
 
 Send and receive
   yungle send <paths…>                    send files or folders, print the link
+    --from-url <url>      also send a file Yungle fetches from a URL (repeatable)
     --to <email>          recipient (repeatable, or comma-separated)
     --message <text>      note for the recipients
     --title <text>        label for your dashboard
     --password <text>     recipients must enter this
     --expires <days>      lifetime, clamped to your plan
-  yungle get <link>                       download a transfer sent to you
+  yungle get <link>                       download a transfer or collection shared with you
     --out <dir>           where to save (default: current directory)
     --zip                 one zip instead of separate files
     --password <text>     for a protected link; asks if left out
+  yungle put <file> --target <target>     upload one file to a target an assistant prepared
   yungle status [<id|link>]               who downloaded a transfer
   yungle transfers                        list your recent transfers
   yungle revoke <id>                      stop a transfer's link for good
@@ -33,10 +35,19 @@ Send and receive
 Collections
   yungle push <paths…> --collection <id>  upload into a collection
     --folder <id>         target folder
+    --from-url <url>      also add a file Yungle fetches from a URL (repeatable)
+  yungle pull --collection <id>           download your collection, folders kept
+    --transfer <id>       download your own transfer instead
+    --out <dir>           where to save (default: the collection's title)
+    --zip                 one zip instead of separate files
   yungle watch <dir> --collection <id>    keep uploading new files as they appear
     --interval <seconds>  how often to look (default 10)
     --existing            also upload what is already in the folder
   yungle collections                      list your collections
+  yungle requests                         list upload links that feed your collections
+  yungle requests new --collection <id>   make one, and print the link to give people
+    --title <text>        shown on the upload page
+  yungle requests pause|resume|close <id> stop or restart uploads through one
   yungle contacts                         list your contacts
 
 In the browser
@@ -68,12 +79,15 @@ export const COMMANDS = [
   'logout',
   'send',
   'get',
+  'put',
   'status',
   'transfers',
   'revoke',
   'push',
+  'pull',
   'watch',
   'collections',
+  'requests',
   'contacts',
   'open',
   'webhooks',
@@ -108,11 +122,13 @@ export function resolveAlias(argv: string[]): string[] {
 export const EXAMPLES: Record<string, string[]> = {
   login: ['yungle login', 'yungle login --key            # on a server: paste a key from Settings → API keys'],
   send: [
+    'yungle send --from-url https://example-bucket.s3.eu-central-1.amazonaws.com/render.mov?X-Amz-Signature=… --to client@example.com',
     'yungle send ~/Shoot --to anna@studio.nl --message "Final selects"',
     'yungle send report.pdf                        # just a link, nobody emailed',
     'yungle send dist/ --json | jq -r .url         # in a script',
   ],
   get: ['yungle get https://yungle.co/t/emerald-palm-a5mt', 'yungle get <link> --zip --out ~/Downloads'],
+  pull: ['yungle pull --collection 01JABC… --out ./wedding', 'yungle pull --transfer 01JABD…'],
   status: ['yungle status                                 # pick from your recent transfers', 'yungle status https://yungle.co/t/emerald-palm-a5mt'],
   push: ['yungle push ~/Shoot --collection 01J8Z3M9Q0W4', 'yungle push raw/ --collection 01J8Z3M9Q0W4 --folder 01J8Z4AB'],
   watch: ['yungle watch ~/Renders --collection 01J8Z3M9Q0W4', 'yungle watch /Volumes/CARD --collection 01J8Z3M9Q0W4 --interval 30'],

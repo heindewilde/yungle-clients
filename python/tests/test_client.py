@@ -149,3 +149,45 @@ def test_create_pull_webhook_sends_null_url():
 
     client_with(handler).create_webhook(None, ["transfer.ready"])
     assert bodies[0] == {"url": None, "events": ["transfer.ready"]}
+
+
+def test_error_carries_docs_link():
+    docs = "https://yungle.co/developers/errors#quota_exceeded"
+
+    def handler(req):
+        return httpx.Response(413, json={"error": {"code": "quota_exceeded", "message": "Full.", "docs": docs}})
+
+    with pytest.raises(YungleError) as e:
+        client_with(handler, max_retries=0).me()
+    assert e.value.docs == docs
+
+
+def test_retry_after_header_counts_when_the_body_states_no_wait():
+    # The monthly-allowance 429: details carry only the limit, the wait is in the header.
+    def handler(req):
+        return httpx.Response(
+            429,
+            headers={"retry-after": "3600"},
+            json={"error": {"code": "rate_limited", "message": "Allowance used.", "details": {"limit": 10000}}},
+        )
+
+    with pytest.raises(YungleError) as e:
+        client_with(handler, max_retries=0).me()
+    assert e.value.retry_after_seconds == 3600
+
+
+def test_body_wins_over_header():
+    err = YungleError(429, "rate_limited", "m", {"retryAfterSeconds": 12}, retry_after_header=60)
+    assert err.retry_after_seconds == 12
+
+
+def test_parse_retry_after():
+    from yungle.errors import parse_retry_after
+
+    now = 1790510400.0  # 2026-09-27T12:00:00Z
+    assert parse_retry_after("120", now) == 120
+    assert parse_retry_after("Sun, 27 Sep 2026 12:01:30 GMT", now) == 90
+    assert parse_retry_after("Sun, 27 Sep 2026 11:00:00 GMT", now) is None
+    assert parse_retry_after("-5", now) is None
+    assert parse_retry_after("soon", now) is None
+    assert parse_retry_after(None, now) is None

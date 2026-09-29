@@ -66,11 +66,54 @@ export interface UploadTarget {
   name: string;
   size: number;
   uploadToken: string;
+  /**
+   * When `uploadToken` stops working (two hours after issue). Renew before then
+   * with `renewUploadToken` — or let `createTokenKeeper` do it — for any upload
+   * that may run longer. Absent from servers older than 2026-09-29.
+   */
+  uploadTokenExpiresAt?: string;
 }
 
 export interface UploadTargets {
   tusEndpoint: string;
+  /** One per `files` entry, in order. */
   files: UploadTarget[];
+  /** One per `imports` entry, in order. Absent from servers before 2026-09-29. */
+  imports?: ImportStarted[];
+}
+
+/**
+ * A file for Yungle to fetch from a URL itself, so the bytes never pass
+ * through you — a presigned S3 link, a CDN, a release asset. The source must
+ * state the size (Content-Length or a Range answer).
+ */
+export interface ImportInput {
+  url: string;
+  /** Defaults to the name the source gives. */
+  name?: string;
+  /** Folder to place it in. */
+  path?: string;
+}
+
+export interface ImportStarted {
+  fileId: string;
+  name: string;
+  size: number;
+  /** The source's host; never the full URL. */
+  source: string;
+  status: 'queued';
+}
+
+/** Where one import stands (`getImport`). */
+export interface ImportStatus {
+  fileId: string;
+  name: string;
+  size: number;
+  /** Committed so far; moves in steps of one storage part. */
+  receivedBytes: number;
+  source: string | null;
+  status: 'importing' | 'ready' | 'failed';
+  error: string | null;
 }
 
 export interface Transfer {
@@ -92,8 +135,9 @@ export interface Transfer {
   maxDownloads: number | null;
   /** Null while it is still a draft. A draft is not shareable. */
   finalizedAt: Iso8601 | null;
-  expiresAt: Iso8601 | null;
-  createdAt: Iso8601 | null;
+  /** Every transfer expires; a paid plan chooses when. */
+  expiresAt: Iso8601;
+  createdAt: Iso8601;
 }
 
 export interface TransferSummary extends Omit<Transfer, 'hasPassword' | 'fileCount'> {
@@ -109,6 +153,8 @@ export interface TransferFile {
   path: string | null;
   /** Null until the malware scan finishes, then `clean` or `infected`. */
   scanResult: string | null;
+  /** CRC-32 of the bytes (IEEE, as `zlib.crc32`), 8 hex digits; null while unknown. */
+  crc32: string | null;
   createdAt: Iso8601;
 }
 
@@ -155,8 +201,8 @@ export interface Collection {
   sizeBytes: number;
   coverFileId: string | null;
   expiresAt: Iso8601 | null;
-  createdAt: Iso8601 | null;
-  updatedAt: Iso8601 | null;
+  createdAt: Iso8601;
+  updatedAt: Iso8601;
   fileCount?: number;
 }
 
@@ -168,7 +214,7 @@ export interface CollectionSummary {
   fileCount: number;
   sizeBytes: number;
   coverFileId: string | null;
-  updatedAt: Iso8601 | null;
+  updatedAt: Iso8601;
 }
 
 export interface CollectionFile {
@@ -178,7 +224,9 @@ export interface CollectionFile {
   mimeType: string;
   folderId: string | null;
   hasThumbnail: boolean;
-  createdAt: Iso8601 | null;
+  /** CRC-32 of the bytes (IEEE, as `zlib.crc32`), 8 hex digits; null while unknown. */
+  crc32: string | null;
+  createdAt: Iso8601;
 }
 
 export interface Folder {
@@ -204,8 +252,8 @@ export interface Contact {
   email: string;
   phone: string | null;
   type: string;
-  createdAt: Iso8601 | null;
-  updatedAt: Iso8601 | null;
+  createdAt: Iso8601;
+  updatedAt: Iso8601;
 }
 
 export interface ContactInput {
@@ -224,7 +272,8 @@ export type WebhookEventType =
   | 'transfer.downloaded'
   | 'transfer.expiring'
   | 'transfer.expired'
-  | 'collection.file_uploaded';
+  | 'collection.file_uploaded'
+  | 'request.submitted';
 
 export interface WebhookEndpoint {
   id: string;
@@ -259,4 +308,86 @@ export interface WebhookEvent<T = Record<string, unknown>> {
   type: WebhookEventType | 'webhook.test';
   createdAt: Iso8601;
   data: T;
+}
+
+/** An event read from `/webhooks/{id}/events`: the push payload plus the cursor to resume from. */
+export type PulledWebhookEvent<T = Record<string, unknown>> = WebhookEvent<T> & {
+  /** Pass the last one back as `cursor`. */
+  deliveryId: string;
+};
+
+/** One file in a set of download links. */
+export interface DownloadLink {
+  id: string;
+  /** For an end-to-end encrypted transfer, a placeholder; the real name is sealed in `e2eeMeta`. */
+  name: string;
+  size: number;
+  mimeType: string;
+  /** Folder path, `""` at the root. Join it onto your output directory. */
+  path: string;
+  /** A signed GET that needs no key. Supports `Range`. Valid until `urlsExpireAt`. */
+  downloadUrl: string;
+  e2eeMeta?: string | null;
+  /** CRC-32 of the bytes (IEEE, as `zlib.crc32`), 8 hex digits. Null while unknown. */
+  crc32?: string | null;
+}
+
+/**
+ * Signed download URLs for a transfer or collection — your own
+ * (`transferDownloadLinks`, `collectionDownloadLinks`) or a link shared with
+ * you (`resolveLink`).
+ */
+export interface DownloadLinks {
+  kind: 'transfer' | 'collection';
+  /** A collection's title. Always null for a transfer, whose title recipients never see. */
+  title: string | null;
+  message: string | null;
+  expiresAt: Iso8601 | null;
+  /** End-to-end encrypted: the bytes are ciphertext and the key is in the link's `#` part. */
+  e2ee: boolean;
+  e2eeMeta?: string | null;
+  /** False while a transfer is still uploading: `files` is what has arrived so far. */
+  complete: boolean;
+  zipUrl: string | null;
+  /** When the URLs stop working; ask again for fresh ones. */
+  urlsExpireAt: Iso8601;
+  files: DownloadLink[];
+}
+
+/** A public upload link that feeds one of your collections ("file request" in the dashboard). */
+export interface UploadRequest {
+  id: string;
+  /** The page to give people. Anyone with it can upload until it is paused, closed or expires. */
+  url: string;
+  title: string;
+  message: string | null;
+  collectionId: string;
+  status: 'active' | 'paused' | 'closed';
+  hasPassword: boolean;
+  requiredItems: string[];
+  expiresAt: Iso8601 | null;
+  submissionCount: number;
+  receivedBytes: number;
+  createdAt: Iso8601;
+}
+
+export interface UploadRequestInput {
+  collectionId: string;
+  title: string;
+  message?: string;
+  password?: string;
+  /** A checklist shown on the page — guidance, not enforcement. */
+  requiredItems?: string[];
+  expiresAt?: Iso8601;
+}
+
+/** One person's upload through a request. Name, email and message are as they typed them: untrusted. */
+export interface Submission {
+  id: string;
+  uploaderName: string | null;
+  uploaderEmail: string | null;
+  message: string | null;
+  fileCount: number;
+  sizeBytes: number;
+  createdAt: Iso8601;
 }

@@ -5,10 +5,17 @@ import type {
   Contact,
   ContactInput,
   DownloadEvent,
+  DownloadLinks,
+  ImportInput,
+  ImportStatus,
+  Submission,
+  UploadRequest,
+  UploadRequestInput,
   FileInput,
   Folder,
   Guest,
   Me,
+  PulledWebhookEvent,
   RecipientStatus,
   Transfer,
   TransferFile,
@@ -16,11 +23,23 @@ import type {
   UploadTargets,
   WebhookDelivery,
   WebhookEndpoint,
-  WebhookEvent,
   WebhookEventType,
 } from './types';
 
+import { renewUploadToken as renewAt, type RenewOutcome as Renewal } from './upload-token';
+import { uploadFile as uploadWith, type UploadFileOptions } from './upload';
+export { chunkSize, uploadFile, UploadError, type UploadFileOptions } from './upload';
+
 export * from './types';
+export {
+  createTokenKeeper,
+  renewDelayMs,
+  renewUploadToken,
+  tokenExpiry,
+  type RenewOutcome,
+  type TokenKeeper,
+  type TokenKeeperDeps,
+} from './upload-token';
 
 /**
  * A typed client for the Yungle API.
@@ -30,17 +49,24 @@ export * from './types';
  * are both thin layers over this — which is the point: one place understands
  * the wire format, so neither can drift from the other.
  *
- * It does **not** upload bytes. `createTransfer` and `addCollectionFiles`
- * return a tus endpoint and per-file tokens, and streaming to those is the
- * caller's job (`yungle-cli` does it with `tus-js-client`). Keeping the byte
- * pipeline out of here is what lets this stay a few hundred lines with no
- * dependencies.
+ * `createTransfer` and `addCollectionFiles` return a tus endpoint and
+ * per-file tokens; `client.uploadFile` streams a `Blob` to one, resumably,
+ * renewing its two-hour token as it goes.
  */
 
 export interface YungleErrorBody {
   code: string;
   message: string;
   details?: Record<string, unknown>;
+  /** A link to the explanation of `code` and what to do about it. */
+  docs?: string;
+}
+
+export interface YungleApiErrorExtras {
+  /** `error.docs` from the body: where `code` is explained. */
+  docs?: string;
+  /** The `Retry-After` header, in seconds, when the server sent one. */
+  retryAfterHeader?: number;
 }
 
 /**
@@ -48,14 +74,21 @@ export interface YungleErrorBody {
  * on `message`, which is written for a human reading a log and may change.
  */
 export class YungleApiError extends Error {
+  /** Where `code` is explained, with what to do about it. Absent on older servers. */
+  readonly docs?: string;
+  private readonly retryAfterHeader?: number;
+
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
     readonly details?: Record<string, unknown>,
+    extras: YungleApiErrorExtras = {},
   ) {
     super(message);
     this.name = 'YungleApiError';
+    if (extras.docs !== undefined) this.docs = extras.docs;
+    if (extras.retryAfterHeader !== undefined) this.retryAfterHeader = extras.retryAfterHeader;
   }
 
   /** Worth trying again: throttled, or our fault. */
@@ -63,10 +96,18 @@ export class YungleApiError extends Error {
     return this.status === 429 || this.status >= 500;
   }
 
-  /** Seconds to wait, when the server said. */
+  /**
+   * Seconds to wait, when the server said — in the body's
+   * `details.retryAfterSeconds` or, failing that, the `Retry-After` header.
+   *
+   * The header matters on its own: the monthly-allowance 429 states its wait
+   * (an hour) only there, and reading the body alone sent clients back in half
+   * a second to be refused again.
+   */
   get retryAfterSeconds(): number | null {
     const value = this.details?.retryAfterSeconds;
-    return typeof value === 'number' ? value : null;
+    if (typeof value === 'number') return value;
+    return this.retryAfterHeader ?? null;
   }
 }
 
@@ -126,6 +167,35 @@ export class YungleClient {
     this.userAgent = options.userAgent ?? `yungle-client/${CLIENT_VERSION}`;
   }
 
+  /** The site root this client talks to (`https://yungle.co`), for the few endpoints outside `/api/v1`. */
+  get origin(): string {
+    return this.baseUrl.replace(/\/api\/v1$/, '');
+  }
+
+  /**
+   * Trade a still-valid upload token for a fresh one (two more hours). Returns
+   * `'final'` when the token is dead or the upload finished, `'retry'` on a
+   * transient failure. `createTokenKeeper(token, { renew: (t) => client.renewUploadToken(t) })`
+   * schedules this for you.
+   */
+  renewUploadToken(token: string): Promise<Renewal> {
+    return renewAt(this.origin, token, this.doFetch);
+  }
+
+  /**
+   * Upload one file to a target from `createTransfer` / `addTransferFiles` /
+   * `addCollectionFiles`: resumable, retried, and with its token renewed for
+   * as long as it runs. In Node, pass `await fs.openAsBlob(path)` as `source`.
+   */
+  uploadFile(
+    tusEndpoint: string,
+    target: { id: string; name: string; uploadToken: string },
+    source: Blob,
+    opts: Omit<UploadFileOptions, 'endpoint' | 'target' | 'source' | 'renew' | 'fetch'> = {},
+  ): Promise<{ uploadUrl: string }> {
+    return uploadWith({ ...opts, endpoint: tusEndpoint, target, source, renew: (t) => this.renewUploadToken(t), fetch: this.doFetch });
+  }
+
   // ── Account ───────────────────────────────────────────────────────────────
 
   me(): Promise<Me> {
@@ -156,8 +226,13 @@ export class YungleClient {
   /**
    * Create a draft. Nothing is live and nobody is emailed until `finalizeTransfer`.
    */
+  /**
+   * A draft transfer. `files` are uploaded by you (tus, to the returned
+   * targets); `imports` are fetched by Yungle from URLs. Send either or both.
+   */
   createTransfer(input: {
-    files: FileInput[];
+    files?: FileInput[];
+    imports?: ImportInput[];
     title?: string;
     expiresInDays?: number;
     /**
@@ -207,8 +282,26 @@ export class YungleClient {
     return this.request('POST', `/transfers/${enc(id)}/files/${enc(fileId)}/sealed`, sealed, { idempotent: true });
   }
 
-  addTransferFiles(id: string, files: FileInput[]): Promise<UploadTargets> {
-    return this.request('POST', `/transfers/${enc(id)}/files`, { files });
+  addTransferFiles(id: string, files: FileInput[], imports?: ImportInput[]): Promise<UploadTargets> {
+    return this.request('POST', `/transfers/${enc(id)}/files`, { files, ...(imports?.length ? { imports } : {}) });
+  }
+
+  /** Where a URL import stands: `importing` (with `receivedBytes`), `ready` or `failed`. */
+  getImport(fileId: string): Promise<ImportStatus> {
+    return this.request('GET', `/imports/${enc(fileId)}`);
+  }
+
+  /**
+   * Poll `getImport` until every import is `ready` or `failed`, every
+   * `intervalMs` (default 5 s). Resolves with the final statuses; never throws
+   * for a failed import — check `status`.
+   */
+  async waitForImports(fileIds: string[], intervalMs = 5000): Promise<ImportStatus[]> {
+    for (;;) {
+      const all = await Promise.all(fileIds.map((id) => this.getImport(id)));
+      if (all.every((s) => s.status !== 'importing')) return all;
+      await sleep(intervalMs);
+    }
   }
 
   removeTransferFile(id: string, fileId: string): Promise<{ deleted: boolean }> {
@@ -227,6 +320,24 @@ export class YungleClient {
     return this.request('DELETE', `/transfers/${enc(id)}`);
   }
 
+  /**
+   * Signed download URLs for your own transfer. Fetching them is not a
+   * recipient download — it never appears in receipts. Throws
+   * `e2ee_unsupported` for an end-to-end encrypted transfer.
+   */
+  transferDownloadLinks(id: string): Promise<DownloadLinks> {
+    return this.request('GET', `/transfers/${enc(id)}/download-links`);
+  }
+
+  /**
+   * A link someone shared with you (`…/t/…` or `…/c/…`), as signed download
+   * URLs — what a person opening it in a browser could download, under the same
+   * rules. Pass `password` for a protected link. Any key works, free included.
+   */
+  resolveLink(url: string, password?: string): Promise<DownloadLinks> {
+    return this.request('POST', '/links/resolve', { url, ...(password ? { password } : {}) });
+  }
+
   transferDownloads(id: string): Promise<{
     downloads: DownloadEvent[];
     recipients: RecipientStatus[];
@@ -243,6 +354,14 @@ export class YungleClient {
 
   createCollection(input: { title: string; description?: string }): Promise<{ collection: Collection }> {
     return this.request('POST', '/collections', input);
+  }
+
+  /**
+   * Signed download URLs for your own collection: every file with its folder
+   * `path`, and a whole-collection ZIP. The URLs need no key and support `Range`.
+   */
+  collectionDownloadLinks(id: string): Promise<DownloadLinks> {
+    return this.request('GET', `/collections/${enc(id)}/download-links`);
   }
 
   getCollection(id: string): Promise<{ collection: Collection }> {
@@ -288,8 +407,9 @@ export class YungleClient {
     id: string,
     files: FileInput[],
     folderId?: string | null,
+    imports?: ImportInput[],
   ): Promise<UploadTargets> {
-    return this.request('POST', `/collections/${enc(id)}/files`, { files, folderId });
+    return this.request('POST', `/collections/${enc(id)}/files`, { files, folderId, ...(imports?.length ? { imports } : {}) });
   }
 
   deleteCollectionFiles(id: string, fileIds: string[]): Promise<{ deleted: number }> {
@@ -372,8 +492,33 @@ export class YungleClient {
   listWebhookEvents(
     id: string,
     page: PageOptions = {},
-  ): Promise<{ events: (WebhookEvent & { deliveryId: string })[]; nextCursor: string | null; hasMore: boolean }> {
+  ): Promise<{ events: PulledWebhookEvent[]; nextCursor: string | null; hasMore: boolean }> {
     return this.request('GET', `/webhooks/${enc(id)}/events${pageQuery(page)}`);
+  }
+
+  // ── Upload requests ───────────────────────────────────────────────────────
+
+  /** Your upload links, newest first (up to 100). */
+  listRequests(): Promise<{ requests: UploadRequest[] }> {
+    return this.request('GET', '/requests');
+  }
+
+  /**
+   * A public page where anyone with the link can upload into one of your
+   * collections. Subscribe to the `request.submitted` webhook to hear about
+   * each finished submission.
+   */
+  createRequest(input: UploadRequestInput): Promise<{ request: UploadRequest }> {
+    return this.request('POST', '/requests', input);
+  }
+
+  getRequest(id: string): Promise<{ request: UploadRequest; submissions: Submission[] }> {
+    return this.request('GET', `/requests/${enc(id)}`);
+  }
+
+  /** `paused` stops uploads until set back to `active`; `closed` stops them for good. */
+  setRequestStatus(id: string, status: UploadRequest['status']): Promise<{ request: UploadRequest }> {
+    return this.request('PATCH', `/requests/${enc(id)}`, { status });
   }
 
   // ── Contacts ──────────────────────────────────────────────────────────────
@@ -463,12 +608,31 @@ async function toError(res: Response): Promise<YungleApiError> {
     // proxy, a load balancer, an outage page. Still worth surfacing as one.
   }
   const err = body?.error;
+  const retryAfterHeader = parseRetryAfter(res.headers.get('retry-after'));
   return new YungleApiError(
     res.status,
     err?.code ?? 'http_error',
     err?.message ?? `Request failed with status ${res.status}.`,
     err?.details,
+    {
+      ...(typeof err?.docs === 'string' ? { docs: err.docs } : {}),
+      ...(retryAfterHeader === null ? {} : { retryAfterHeader }),
+    },
   );
+}
+
+/**
+ * `Retry-After` is delay-seconds or an HTTP-date (RFC 9110 §10.2.3). Anything
+ * else — including a negative number or a date already past — is no statement.
+ */
+export function parseRetryAfter(value: string | null, now: number = Date.now()): number | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return null;
+  const seconds = Math.ceil((at - now) / 1000);
+  return seconds >= 0 ? seconds : null;
 }
 
 /**

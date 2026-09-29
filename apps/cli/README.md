@@ -27,8 +27,9 @@ Works on the free plan. Node 22 or newer.
 
 | | |
 |---|---|
-| `yungle send <paths…>` | Send files or folders and print the link. `--to`, `--message`, `--title`, `--password`, `--expires` |
-| `yungle get <link>` | Download a transfer sent to you. No account needed. `--out`, `--zip`, `--password` |
+| `yungle send <paths…>` | Send files or folders and print the link. `--to`, `--message`, `--title`, `--password`, `--expires`, `--from-url <url>` (Yungle fetches it) |
+| `yungle get <link>` | Download a transfer or collection shared with you, folders kept, checksum-verified. No account needed. `--out`, `--zip`, `--password` |
+| `yungle put <file> --target <target>` | Upload one file to a target an AI assistant prepared. No key needed |
 | `yungle status [<id\|link>]` | Who downloaded a transfer. Without an id, pick from your recent ones |
 | `yungle transfers` | Your recent transfers |
 | `yungle revoke <id>` | Stop a transfer's link for good (asks first) |
@@ -37,7 +38,9 @@ Works on the free plan. Node 22 or newer.
 
 | | |
 |---|---|
-| `yungle push <paths…> --collection <id>` | Upload into a collection, optionally `--folder <id>` |
+| `yungle push <paths…> --collection <id>` | Upload into a collection, optionally `--folder <id>`, `--from-url <url>` |
+| `yungle pull --collection <id>` | Download your collection, folders kept; run again to fetch only what is new. `--transfer <id>`, `--out`, `--zip` |
+| `yungle requests` | Upload links that feed your collections. `new --collection <id> --title …`, `show`, `pause`, `resume`, `close` |
 | `yungle watch <dir> --collection <id>` | Keep uploading new files as they appear |
 | `yungle collections` | Your collections |
 | `yungle contacts` | Your contacts |
