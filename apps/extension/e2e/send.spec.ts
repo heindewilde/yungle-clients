@@ -15,7 +15,7 @@ test('the side panel sends files and hands back a working link', async ({ contex
 
   await expect(panel.getByText('Your link is ready')).toBeVisible({ timeout: 30_000 });
   const link = await panel.getByLabel('Link').inputValue();
-  expect(link).toMatch(new RegExp(`^${ORIGIN}/t/[a-z]+`));
+  expect(link).toMatch(new RegExp(`^${ORIGIN}/t/[a-z0-9]+`));
   expect(link).not.toContain('#');
 
   // The recipient's page names the file — a positive marker, not a status code.
