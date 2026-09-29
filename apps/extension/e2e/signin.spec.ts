@@ -7,8 +7,8 @@ import { expect, mintTokens, ORIGIN, siteSessionCookie, stored, test } from './f
  */
 test('signing in from the popup finishes on its own', async ({ context, extensionId, worker }) => {
   // `dev:session` signs in an existing account; minting a token creates it.
-  mintTokens('extension-signin@yungle.test');
-  const { name, value } = siteSessionCookie('extension-signin@yungle.test');
+  mintTokens('ext-signin@yungle.test');
+  const { name, value } = siteSessionCookie('ext-signin@yungle.test');
   await context.addCookies([{ name, value, domain: 'localhost', path: '/' }]);
 
   const popup = await context.newPage();

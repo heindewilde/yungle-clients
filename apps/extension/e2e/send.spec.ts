@@ -3,7 +3,7 @@ import { expect, mintTokens, ORIGIN, seedSignIn, test } from './fixtures';
 const file = (name: string, text = 'hello from the extension test\n') => ({ name, mimeType: 'text/plain', buffer: Buffer.from(text) });
 
 test.beforeEach(async ({ worker }) => {
-  await seedSignIn(worker, mintTokens('extension-e2e@yungle.test'));
+  await seedSignIn(worker, mintTokens('ext-send@yungle.test'));
 });
 
 test('the side panel sends files and hands back a working link', async ({ context, extensionId }) => {

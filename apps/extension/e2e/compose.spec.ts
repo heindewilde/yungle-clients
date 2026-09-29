@@ -14,7 +14,7 @@ const FAKE_GMAIL = `<!doctype html><html><body>
 </body></html>`;
 
 test('the Gmail button uploads and puts the link into the email', async ({ context, worker }) => {
-  await seedSignIn(worker, mintTokens('extension-compose@yungle.test'));
+  await seedSignIn(worker, mintTokens('ext-compose@yungle.test'));
   await context.route('https://mail.google.com/**', (route) => route.fulfill({ contentType: 'text/html', body: FAKE_GMAIL }));
 
   const mail = await context.newPage();
