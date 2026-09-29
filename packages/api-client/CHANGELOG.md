@@ -1,5 +1,11 @@
 # yungle-client
 
+## 0.3.1
+
+### Patch Changes
+
+- [`394eecd`](https://github.com/heindewilde/yungle-clients/commit/394eecd7411f0dde477187bdfd25f4bddceffadc) Thanks [@heindewilde](https://github.com/heindewilde)! - `getReferral()`: your invite code and link, and the free months it has earned (`GET /me/referral`).
+
 ## 0.3.0
 
 ### Minor Changes
