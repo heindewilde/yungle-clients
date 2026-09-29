@@ -1,5 +1,12 @@
 # yungle-extension
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [[`394eecd`](https://github.com/heindewilde/yungle-clients/commit/394eecd7411f0dde477187bdfd25f4bddceffadc)]:
+  - yungle-client@0.3.1
+
 ## 0.1.1
 
 ### Patch Changes
