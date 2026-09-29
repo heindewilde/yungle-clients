@@ -1,0 +1,24 @@
+name: mcp-registry
+# Publish packages/mcp-server/server.json to the MCP registry by hand. The
+# release workflow does this after an npm publish of yungle-mcp, but only when
+# that same run published it — a release that fails on another package skips
+# it (2026-09-29, yungle-mcp 0.3.0). Run this to catch up.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish server.json
+        env:
+          MCP_REGISTRY_KEY: ${{ secrets.MCP_REGISTRY_KEY }}
+        run: |
+          [ -n "$MCP_REGISTRY_KEY" ] || { echo "::error::MCP_REGISTRY_KEY is not set"; exit 1; }
+          v=$(node -p "require('./packages/mcp-server/server.json').version")
+          npm view "yungle-mcp@$v" version >/dev/null || { echo "::error::yungle-mcp@$v is not on npm yet"; exit 1; }
+          curl -fsSL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz | tar xz mcp-publisher
+          ./mcp-publisher login dns --domain yungle.co --private-key "$MCP_REGISTRY_KEY"
+          cd packages/mcp-server && ../../mcp-publisher publish

@@ -25,6 +25,7 @@ import ts from 'typescript';
 /** Client interface → the spec's `components/schemas` name. */
 const MAP = {
   Me: 'Me',
+  Referral: 'Referral',
   UploadTarget: 'UploadTarget',
   Transfer: 'Transfer',
   TransferSummary: 'TransferSummary',

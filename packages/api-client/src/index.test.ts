@@ -49,6 +49,13 @@ test('the base URL loses any trailing slashes, so paths never double up', async 
   assert.equal(call().url, 'http://localhost:3000/api/v1/me');
 });
 
+test('getReferral reads /me/referral', async () => {
+  const { fn, call } = stubFetch();
+  await new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn }).getReferral();
+  assert.equal(call().url, 'http://x/v1/me/referral');
+  assert.equal(call().init.method, 'GET');
+});
+
 test('the key travels as a bearer token', async () => {
   const { fn, call } = stubFetch();
   await new YungleClient({ apiKey: 'secret-key', baseUrl: 'http://x/v1', fetch: fn }).me();

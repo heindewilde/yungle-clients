@@ -15,6 +15,7 @@ import type {
   Folder,
   Guest,
   Me,
+  Referral,
   PulledWebhookEvent,
   RecipientStatus,
   Transfer,
@@ -200,6 +201,11 @@ export class YungleClient {
 
   me(): Promise<Me> {
     return this.request('GET', '/me');
+  }
+
+  /** Your invite code and link, and the free months it has earned. */
+  getReferral(): Promise<Referral> {
+    return this.request('GET', '/me/referral');
   }
 
   // ── Transfers ─────────────────────────────────────────────────────────────

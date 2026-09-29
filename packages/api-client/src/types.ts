@@ -45,6 +45,24 @@ export interface KeyInfo {
   canEmail?: boolean;
 }
 
+/** Your invite code and what it has earned (`GET /me/referral`). */
+export interface Referral {
+  /** Your invite code. A friend can type it in Settings › Plan. */
+  code: string;
+  /** Your invite link: the same code, as a page that signs them up. */
+  url: string;
+  /** Free months earned so far. */
+  earnedMonths: number;
+  /** Free months still available to earn. */
+  remainingMonths: number;
+  /** The most free months one person can earn, ever. */
+  cap: number;
+  /** True once `earnedMonths` reached `cap`. The link still gives friends their month. */
+  capped: boolean;
+  /** Friends in their free month, or inside the 14 days after their first payment. */
+  pending: number;
+}
+
 export interface Me {
   workspace: Workspace;
   plan: PlanInfo;
