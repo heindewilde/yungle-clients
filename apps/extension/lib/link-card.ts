@@ -3,7 +3,7 @@ import { formatBytes, formatUntil } from './format';
 /**
  * What the compose button inserts into an email: a small card or a plain line.
  *
- * Email HTML, so: tables-free inline styles only, no images (clients block
+ * Email HTML, so: one table cell and inline styles, no images (clients block
  * them, and a remote logo would be a tracking pixel in all but name), no
  * classes, and every piece of text escaped — filenames are user data going
  * into someone else's editor.
@@ -44,12 +44,18 @@ export function cardHtml(input: CardInput): string {
   const href = escapeHtml(input.link);
   const title = escapeHtml(summary(input));
   const size = escapeHtml(formatBytes(input.totalBytes));
+  // A one-cell table, not a div: Chrome's insertHTML dissolves an outer div
+  // into the line the caret is on (the title ended up glued to the sentence
+  // before it), and Outlook on Windows draws email with the Word engine, which
+  // honours tables and little else.
+  const font = 'font-family:Arial,Helvetica,sans-serif;';
   return (
-    `<div style="border:1px solid #dde6dd;border-radius:12px;padding:14px 16px;margin:8px 0;max-width:420px;font-family:Arial,Helvetica,sans-serif;color:#1e2b24;">` +
-    `<div style="font-size:15px;font-weight:bold;margin:0 0 4px;">${title}</div>` +
-    `<div style="font-size:13px;color:#4b5a52;margin:0 0 12px;">${size}${until}${input.e2ee ? ' · end-to-end encrypted' : ''}</div>` +
-    `<a href="${href}" style="display:inline-block;background:#3ea76a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;padding:9px 16px;border-radius:8px;">Download</a>` +
-    `<div style="font-size:11px;color:#7a897f;margin:10px 0 0;">Sent with Yungle</div>` +
-    `</div>`
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #dde6dd;border-radius:12px;border-collapse:separate;margin:8px 0;max-width:420px;">` +
+    `<tr><td style="padding:14px 16px;${font}color:#1e2b24;">` +
+    `<div style="${font}font-size:15px;font-weight:bold;margin:0 0 4px;">${title}</div>` +
+    `<div style="${font}font-size:13px;color:#4b5a52;margin:0 0 12px;">${size}${until}${input.e2ee ? ' · end-to-end encrypted' : ''}</div>` +
+    `<a href="${href}" style="${font}display:inline-block;background:#3ea76a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;padding:9px 16px;border-radius:8px;">Download</a>` +
+    `<div style="${font}font-size:11px;color:#7a897f;margin:10px 0 0;">Sent with Yungle</div>` +
+    `</td></tr></table>`
   );
 }

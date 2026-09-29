@@ -6,6 +6,14 @@ import { explainError, type Explained } from '@/lib/errors';
 import { formatBytes } from '@/lib/format';
 import { ErrorLine } from './Composer';
 
+/** Its title, else what was sent: "Contract.pdf and 2 more". An encrypted one has no readable names. */
+function label(t: TransferSummary): string {
+  if (t.title) return t.title;
+  if (t.e2ee) return t.fileCount === 1 ? 'Encrypted file' : `${t.fileCount} encrypted files`;
+  if (!t.firstFileName) return 'Transfer';
+  return t.fileCount > 1 ? `${t.firstFileName} and ${t.fileCount - 1} more` : t.firstFileName;
+}
+
 /** The last few sent transfers, with their links. Drafts are not shareable, so they are left out. */
 export function Recent() {
   const [items, setItems] = useState<TransferSummary[] | null>(null);
@@ -28,7 +36,7 @@ export function Recent() {
       {items.map((t) => (
         <li key={t.id} className="spread" style={{ padding: '7px 0', borderTop: '1px solid var(--c-hairline)' }}>
           <div className="truncate">
-            <div className="truncate">{t.title || (t.e2ee ? 'Encrypted transfer' : t.firstFileName) || 'Transfer'}</div>
+            <div className="truncate">{label(t)}</div>
             <div className="faint">
               {formatBytes(t.sizeBytes)} · {t.downloadCount} {t.downloadCount === 1 ? 'download' : 'downloads'}
             </div>

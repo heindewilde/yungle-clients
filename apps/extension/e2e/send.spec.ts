@@ -61,5 +61,5 @@ test('an end-to-end encrypted send puts the key in the link and nowhere else', a
   // The list knows it cannot hand out a working copy of that link.
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-  await expect(popup.getByText('Encrypted transfer').first()).toBeVisible();
+  await expect(popup.getByText('Encrypted file').first()).toBeVisible();
 });
