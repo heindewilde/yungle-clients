@@ -117,3 +117,11 @@ test('a boolean flag does not swallow the next token', async () => {
     assert.deepEqual(positionals, ['KEEP'], `--${flag} swallowed the next token`);
   }
 });
+
+test('a repeatable flag keeps every value, in both spellings', async () => {
+  const { listFlag, urlListFlag } = await import('./args');
+  const { flags } = parseArgs(['send', 'a.jpg', '--to', 'a@b.com', '--to=c@d.com', '--to', 'e@f.com,g@h.com']);
+  assert.deepEqual(listFlag(flags.to), ['a@b.com', 'c@d.com', 'e@f.com', 'g@h.com']);
+  const urls = parseArgs(['send', '--from-url', 'https://x.test/a?list=1,2', '--from-url', 'https://y.test/b']).flags['from-url'];
+  assert.deepEqual(urlListFlag(urls), ['https://x.test/a?list=1,2', 'https://y.test/b'], 'a comma inside a URL is not a separator');
+});

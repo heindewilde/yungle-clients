@@ -37,9 +37,9 @@ sign-in code can't be used to mail strangers.
 
 | | Install | What it's for |
 |---|---|---|
-| **[CLI](apps/cli)** | `npm i -g yungle-cli`<br>`brew install heindewilde/yungle/yungle` | Send, receive and sync files from a terminal or CI. Resumes after a dropped connection or a closed lid |
-| **[MCP server](packages/mcp-server)** | [In Claude's directory](https://claude.ai/directory/yungle)<br>`https://yungle.co/mcp` | Connect Claude, Cursor or any MCP client with one sign-in: ask what arrived, share files, approve every send |
-| **[TypeScript SDK](packages/api-client)** | `npm i yungle-client` | The whole API, typed and dependency-free. Node, Bun, Deno, edge runtimes |
+| **[CLI](apps/cli)** | `npm i -g yungle-cli`<br>`brew install heindewilde/yungle/yungle` | Send, receive and sync files from a terminal or CI — both ways, folders kept, checksums verified. Resumes after a dropped connection or a closed lid |
+| **[MCP server](packages/mcp-server)** | [In Claude's directory](https://claude.ai/directory/yungle)<br>`https://yungle.co/mcp` | Connect Claude, Cursor or any MCP client with one sign-in: ask what arrived, share big files (Yungle can fetch them from a URL), download what you were sent, approve every send |
+| **[TypeScript SDK](packages/api-client)** | `npm i yungle-client` | The whole API, typed and dependency-free, with resumable uploads from any `Blob`. Node, Bun, Deno, edge runtimes |
 | **[Python SDK](python)** | `pip install yungle` | The API from Python, with a one-call `send()` that handles the upload |
 | **[GitHub Action](https://github.com/heindewilde/yungle-send-action)** | `uses: heindewilde/yungle-send-action@v1` | Send build artefacts to a client from CI and get the link back as an output |
 | **[Examples](examples)** | | GitHub Actions, nightly reports, and more at [yungle.co/developers/recipes](https://yungle.co/developers/recipes?ref=github) |
@@ -57,6 +57,8 @@ link when piped, JSON with `--json`.
 yungle send ~/Shoot --to anna@studio.nl --message "Final selects"   # send a folder
 yungle send dist/ --json | jq -r .url                               # in a script
 yungle get https://yungle.co/t/emerald-palm-a5mt                    # download, no account needed
+yungle send --from-url "https://bucket.s3.eu-central-1.amazonaws.com/render.mov?…"   # Yungle fetches it
+yungle pull --collection 01J8Z3M9Q0W4                               # your collection, to disk
 yungle status                                                       # who downloaded what
 yungle watch ~/Renders --collection 01J8Z3M9Q0W4                    # upload new files as they land
 yungle webhooks listen --forward-to http://localhost:8080/hooks     # test webhooks locally
@@ -83,8 +85,10 @@ https://yungle.co/mcp
 ```
 
 Then ask things like *"Did Anna download the final set?"*, *"Which deliveries expire this
-week?"* or *"Share these three files with the client."* The assistant prepares; **you approve
-every send** before an email leaves. There is no tool that deletes, revokes or invites, and
+week?"* *"Share these three files with the client."*, *"Send the client the render in our S3 bucket."* or
+*"What's in the link Anna sent me?"* A chat cannot carry a 40 GB file, so the assistant doesn't:
+Yungle fetches it from where it already is, or the assistant runs a one-file `npx yungle-cli put`
+command in its shell. The assistant prepares; **you approve every send** before an email leaves. There is no tool that deletes, revokes or invites, and
 everything the server returns is labelled as untrusted data, because a filename can carry a
 prompt injection.
 
@@ -146,7 +150,7 @@ derived in your browser and never sent to Yungle, so no API can read them. See
 ```bash
 pnpm install
 pnpm typecheck && pnpm lint && pnpm test && pnpm build
-pnpm contract   # check the clients against the live OpenAPI spec
+pnpm contract   # check the clients (operations and types) against the live OpenAPI spec
 ```
 
 This repository is where the clients are developed; the Yungle service itself is not open

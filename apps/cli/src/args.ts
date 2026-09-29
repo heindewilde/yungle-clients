@@ -30,6 +30,7 @@ const VALUE_FLAGS = new Set([
   'password',
   'expires',
   'collection',
+  'transfer',
   'folder',
   'out',
   'url',
@@ -42,7 +43,16 @@ const VALUE_FLAGS = new Set([
   'client',
   'forward-to',
   'interval',
+  'from-url',
+  'target',
 ]);
+
+/**
+ * Flags that may be given more than once, every value kept. `--to a --to b`
+ * used to keep only `b` — the help promised "repeatable" and the parser
+ * silently dropped every recipient but the last.
+ */
+const REPEATABLE = new Set(['to', 'from-url']);
 
 /** Value flags that may also stand alone, meaning "prompt for it". */
 const OPTIONAL_VALUE = new Set(['key']);
@@ -66,7 +76,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const body = token.slice(2);
       const eq = body.indexOf('=');
       if (eq >= 0) {
-        flags[body.slice(0, eq)] = body.slice(eq + 1);
+        const name = body.slice(0, eq);
+        const prior = flags[name];
+        flags[name] = REPEATABLE.has(name) && typeof prior === 'string' ? `${prior}\n${body.slice(eq + 1)}` : body.slice(eq + 1);
         continue;
       }
       if (VALUE_FLAGS.has(body)) {
@@ -79,7 +91,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
           }
           throw new Error(`--${body} needs a value.`);
         }
-        flags[body] = value;
+        const prior = flags[body];
+        flags[body] = REPEATABLE.has(body) && typeof prior === 'string' ? `${prior}\n${value}` : value;
         i++;
         continue;
       }
@@ -97,7 +110,19 @@ export function parseArgs(argv: string[]): ParsedArgs {
 export function listFlag(value: string | boolean | undefined): string[] {
   if (typeof value !== 'string') return [];
   return value
-    .split(',')
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * A repeatable URL flag. Split only between repetitions, never on commas: a
+ * presigned URL's query string may contain one.
+ */
+export function urlListFlag(value: string | boolean | undefined): string[] {
+  if (typeof value !== 'string') return [];
+  return value
+    .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
 }

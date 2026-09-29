@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dedupeNames, parseTransferLink, resumeFrom, safeFileName } from './get';
+import { dedupeNames, dedupePaths, parseTransferLink, resumeFrom, safeFileName, safeRelativeDir } from './get';
 
 const ORIGIN = 'https://yungle.co';
 
 test('a full link keeps its own origin, recipient and whether it carries a key', () => {
   assert.deepEqual(parseTransferLink('https://yungle.co/t/AbC123xyz_-9?r=01J8Z3', ORIGIN), {
     origin: 'https://yungle.co',
+    kind: 't',
     slug: 'AbC123xyz_-9',
     recipient: '01J8Z3',
     hasKey: false,
@@ -20,11 +21,41 @@ test('a bare slug resolves against the default origin', () => {
   assert.equal(parseTransferLink('AbC123xyz_-9', ORIGIN).origin, ORIGIN);
 });
 
-test('anything else is refused, and a collection link says why', () => {
-  assert.throws(() => parseTransferLink('https://yungle.co/c/sometoken123', ORIGIN), /collection link/);
-  for (const bad of ['https://yungle.co/pricing', 'not a link', 'https://yungle.co/t/../../etc', 'short']) {
-    assert.throws(() => parseTransferLink(bad, ORIGIN), /Not a Yungle transfer link/, bad);
+test('a collection link is a collection, and never carries a recipient', () => {
+  assert.deepEqual(parseTransferLink('https://yungle.co/c/nRYOMLMKf9NPgN1A0iq7bQ?r=x', ORIGIN), {
+    origin: 'https://yungle.co',
+    kind: 'c',
+    slug: 'nRYOMLMKf9NPgN1A0iq7bQ',
+    recipient: null,
+    hasKey: false,
+  });
+});
+
+test('anything else is refused', () => {
+  for (const bad of ['https://yungle.co/pricing', 'not a link', 'https://yungle.co/t/../../etc', 'short', 'https://yungle.co/r/abcdefghij']) {
+    assert.throws(() => parseTransferLink(bad, ORIGIN), /Not a Yungle link/, bad);
   }
+});
+
+test('a server-supplied folder path cannot climb out of the output directory', () => {
+  assert.equal(safeRelativeDir('Ceremony/Raw'), 'Ceremony/Raw');
+  assert.equal(safeRelativeDir('/Selects/Day 1/'), 'Selects/Day 1');
+  assert.equal(safeRelativeDir('../../.ssh'), '.ssh');
+  assert.equal(safeRelativeDir('a\\..\\b'), 'a/b');
+  assert.equal(safeRelativeDir(undefined), '');
+  assert.equal(safeRelativeDir('..'), '');
+});
+
+test('the same name in two folders is fine; in one folder it is numbered', () => {
+  assert.deepEqual(
+    dedupePaths([
+      { dir: 'a', name: 'x.jpg' },
+      { dir: 'b', name: 'x.jpg' },
+      { dir: 'a', name: 'X.jpg' },
+      { dir: '', name: 'x.jpg' },
+    ]),
+    ['a/x.jpg', 'b/x.jpg', 'a/X (2).jpg', 'x.jpg'],
+  );
 });
 
 test('a sender-supplied name can never choose where bytes land', () => {

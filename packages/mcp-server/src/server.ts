@@ -2,10 +2,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { YungleApiError, YungleClient } from 'yungle-client';
 import { z } from 'zod';
-import { realpath, stat } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { mkdir, realpath, stat } from 'node:fs/promises';
+import { basename, isAbsolute, join } from 'node:path';
 import { UNTRUSTED_NOTE, wrapUntrusted } from './untrusted';
-import { uploadBytes, uploadPath } from './upload';
+import { expandPaths, uploadBytes, uploadPath } from './upload';
+import { saveLinks } from './download';
 
 /**
  * A Model Context Protocol server for Yungle.
@@ -197,6 +198,144 @@ export function createServer(
     async () => ok(wrapUntrusted(await client.listContacts())),
   );
 
+  server.registerTool(
+    'list_upload_requests',
+    {
+      title: 'Upload requests',
+      description:
+        'Answers: which upload links do I have out? has anyone sent files through them? Returns each ' +
+        'public upload page that feeds a collection, with its link, status and how much has arrived.',
+      inputSchema: {},
+      annotations: { title: 'Upload requests', readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return ok(wrapUntrusted(await client.listRequests()));
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    },
+  );
+
+  server.registerTool(
+    'get_upload_request',
+    {
+      title: 'Upload request detail',
+      description:
+        'Answers: who has uploaded through this link, when, and how much? Returns the request and its ' +
+        'submissions, newest first, with the name, email and note each uploader typed.',
+      inputSchema: { id: z.string().describe('Upload request id.') },
+      annotations: { title: 'Upload request detail', readOnlyHint: true },
+    },
+    async ({ id }) => {
+      try {
+        return ok(wrapUntrusted(await client.getRequest(id)));
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    },
+  );
+
+  // ── Getting files out ─────────────────────────────────────────────────────
+
+  const whichSource = {
+    url: z
+      .string()
+      .optional()
+      .describe('A Yungle link someone shared: https://yungle.co/t/… (transfer) or https://yungle.co/c/… (collection).'),
+    password: z.string().optional().describe('For a password-protected link.'),
+    transferId: z.string().optional().describe('The id of one of your own transfers (when there is no link).'),
+    collectionId: z.string().optional().describe('The id of one of your own collections (when there is no link).'),
+  };
+  const fetchLinks = async (a: { url?: string; password?: string; transferId?: string; collectionId?: string }) => {
+    const given = [a.url, a.transferId, a.collectionId].filter(Boolean).length;
+    if (given !== 1) throw new Error('Pass exactly one of url, transferId or collectionId.');
+    if (a.url) return client.resolveLink(a.url, a.password);
+    if (a.transferId) return client.transferDownloadLinks(a.transferId);
+    return client.collectionDownloadLinks(a.collectionId!);
+  };
+
+  server.registerTool(
+    'get_download_links',
+    {
+      title: 'Download links',
+      description: [
+        'Answers: what is in this link someone sent me? how do I get these files? Turns a Yungle link',
+        '(https://yungle.co/t/… or /c/…), or one of your own transfers or collections, into signed',
+        'download URLs: one per file, with its folder path, plus a ZIP. The URLs need no key, support',
+        'HTTP Range (resumable), and work for 24 hours — fetch them with curl or any HTTP client.',
+        'Resolving someone else\'s link counts as one download of it, like opening it in a browser.',
+      ].join('\n'),
+      inputSchema: whichSource,
+      annotations: { title: 'Download links', readOnlyHint: true, openWorldHint: true },
+    },
+    async (args) => {
+      try {
+        return ok(wrapUntrusted(await fetchLinks(args)));
+      } catch (err) {
+        return fail(errorText(err));
+      }
+    },
+  );
+
+  if (opts.local) {
+    server.registerTool(
+      'download_files',
+      {
+        title: 'Download files to this computer',
+        description: [
+          'Save the files of a Yungle link, or of one of your own transfers or collections, into a',
+          'folder on this machine — resumably, keeping their folder structure. Files land in a new',
+          'subfolder of `directory`; nothing outside it is written, and files already there at full',
+          'size are skipped. Returns the saved paths.',
+        ].join('\n'),
+        inputSchema: {
+          ...whichSource,
+          directory: z.string().min(1).describe('Absolute path of an existing folder to save into, e.g. ~/Downloads expanded.'),
+        },
+        annotations: { title: 'Download files to this computer', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      },
+      async ({ directory, ...source }, extra) => {
+        if (!isAbsolute(directory)) return fail('`directory` must be an absolute path.');
+        const isHidden = (p: string) => p.split(/[\\/]/).some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..');
+        const real = await realpath(directory).catch(() => null);
+        if (!real || !(await stat(real)).isDirectory()) return fail(`No such folder: ${directory}`);
+        // Hidden folders are where configuration and startup scripts live.
+        if (isHidden(real)) return fail(`Refused: ${real} is a hidden folder.`);
+        let links;
+        try {
+          links = await fetchLinks(source);
+        } catch (err) {
+          return fail(errorText(err));
+        }
+        if (links.e2ee) return fail('This transfer is end-to-end encrypted; only a browser holding the key in the link can open it.');
+        if (links.files.length === 0) return ok({ saved: [], note: 'Nothing to download.' });
+        const bytes = links.files.reduce((n, f) => n + f.size, 0);
+        const label = links.title ?? (links.kind === 'collection' ? 'collection' : 'transfer');
+        const folder = join(real, `yungle-${label.replace(/[^\w .-]+/g, '_').slice(0, 60).trim() || 'download'}`);
+        const agreed = await confirm(
+          server,
+          `Download ${links.files.length} file${links.files.length === 1 ? '' : 's'} (${formatBytes(bytes)}) into ${folder}?`,
+          extra,
+        );
+        // Unlike sharing, a download reveals nothing: "cannot ask" leaves the
+        // host's own tool approval standing, and the write is confined to a new
+        // subfolder of a non-hidden directory the user named.
+        if (agreed === 'declined') return ok({ saved: [], reason: 'The user declined.' });
+        await mkdir(folder, { recursive: true });
+        const saved = await saveLinks(links, folder);
+        return ok(
+          wrapUntrusted({
+            folder,
+            complete: links.complete,
+            saved: saved.map((f) => ({ path: f.path, bytes: f.bytes, alreadyThere: f.skipped })),
+            ...(links.complete ? {} : { note: 'The sender is still uploading; run this again later for the rest.' }),
+          }),
+        );
+      },
+    );
+  }
+
   // ── Writing ───────────────────────────────────────────────────────────────
 
   server.registerTool(
@@ -204,10 +343,10 @@ export function createServer(
     {
       title: 'Prepare a transfer',
       description: [
-        'Prepare a draft transfer for files the user will upload themselves, and return its id.',
-        '',
-        'It uploads no files and emails nobody: the user uploads the files and sends the transfer',
-        'themselves, in the browser or with the Yungle CLI.',
+        'Prepare a draft transfer for files that live on a machine with a shell, and return one',
+        'upload command per file. Each command (`npx -y yungle-cli put …`) needs no Yungle key: it',
+        'carries a token that can write only that file, for two hours, and it resumes if interrupted.',
+        'Nothing is shared and nobody is emailed until the transfer is finalized.',
       ].join('\n'),
       inputSchema: {
         files: z
@@ -216,6 +355,7 @@ export function createServer(
               name: z.string(),
               size: z.number().int().nonnegative().describe('Exact byte size.'),
               path: z.string().optional().describe('Folder within the upload.'),
+              localPath: z.string().optional().describe('Where the file is on the machine that will run the command.'),
             }),
           )
           .min(1)
@@ -226,17 +366,57 @@ export function createServer(
       annotations: { title: 'Prepare a transfer', readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async ({ files, title, expiresInDays }) => {
-      const created = await client.createTransfer({ files, title, expiresInDays });
-      return ok({
-        transferId: created.transfer.id,
-        // Said in the payload, not only the description: the payload is what a
-        // model summarises back to the user.
-        status: 'draft — no files uploaded, nobody emailed',
-        finishInBrowser: `Open the Yungle dashboard to upload the files and send this transfer (id ${created.transfer.id}).`,
-        expiresAt: created.transfer.expiresAt,
-      });
+      try {
+        const created = await client.createTransfer({
+          files: files.map(({ localPath: _local, ...f }) => f),
+          title,
+          expiresInDays,
+        });
+        return ok({
+          transferId: created.transfer.id,
+          // Said in the payload, not only the description: the payload is what a
+          // model summarises back to the user.
+          status: 'draft — nothing uploaded yet, nobody emailed',
+          uploadCommands: created.files.map((t, i) => ({
+            name: t.name,
+            command: `npx -y yungle-cli@latest put ${shellQuote(files[i]!.localPath ?? `./${t.name}`)} --target ${packTarget({
+              e: created.tusEndpoint,
+              i: t.id,
+              t: t.uploadToken,
+              n: t.name,
+              s: t.size,
+            })}`,
+          })),
+          next: 'Run each command where the file is. When they have finished, finalize the transfer to get its link — or upload in the Yungle dashboard instead.',
+          expiresAt: created.transfer.expiresAt,
+        });
+      } catch (err) {
+        return fail(errorText(err));
+      }
     },
   );
+
+  if (opts.canWrite) {
+    server.registerTool(
+      'finalize_transfer',
+      {
+        title: 'Finish a transfer and get its link',
+        description:
+          'Make a prepared transfer live and return its link, once its files are uploaded. Nobody is ' +
+          'emailed: the link is returned, and the user decides where it goes.',
+        inputSchema: { transferId: z.string() },
+        annotations: { title: 'Finish a transfer and get its link', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      },
+      async ({ transferId }) => {
+        try {
+          const { transfer } = await client.finalizeTransfer(transferId, {});
+          return ok({ transferId: transfer.id, url: transfer.url, expiresAt: transfer.expiresAt, emailed: 'nobody' });
+        } catch (err) {
+          return fail(errorText(err));
+        }
+      },
+    );
+  }
 
   if (opts.canWrite) {
     server.registerTool(
@@ -276,9 +456,76 @@ export function createServer(
           title,
           expiresInDays,
         });
-        for (const [i, target] of draft.files.entries()) await uploadBytes(draft.tusEndpoint, target, contents[i]!);
+        for (const [i, target] of draft.files.entries()) await uploadBytes(client, draft.tusEndpoint, target, contents[i]!);
         const { transfer } = await client.finalizeTransfer(draft.transfer.id, {});
         return ok({ transferId: transfer.id, url: transfer.url, expiresAt: transfer.expiresAt, emailed: 'nobody' });
+      },
+    );
+  }
+
+  if (opts.canWrite) {
+    server.registerTool(
+      'share_from_urls',
+      {
+        title: 'Share files from URLs as a link',
+        description: [
+          'Create a Yungle transfer from files that are already online — a presigned S3 or GCS link, a',
+          'CDN URL, a release asset — and return its link. Yungle fetches each file itself, so a file of',
+          'any size the plan allows moves without passing through this conversation. The link works at',
+          'once and shows the files as they arrive. Nobody is emailed. Up to 20 URLs; each must be',
+          'public and state its size.',
+        ].join('\n'),
+        inputSchema: {
+          urls: z
+            .array(
+              z.object({
+                url: z.string().url(),
+                name: z.string().min(1).max(200).optional().describe('File name; defaults to the one the source gives.'),
+              }),
+            )
+            .min(1)
+            .max(20),
+          title: z.string().optional().describe('Label for the dashboard; never shown to recipients.'),
+          expiresInDays: z.number().int().positive().optional(),
+        },
+        annotations: { title: 'Share files from URLs as a link', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ urls, title, expiresInDays }) => {
+        try {
+          const draft = await client.createTransfer({ imports: urls, title, expiresInDays });
+          const { transfer } = await client.finalizeTransfer(draft.transfer.id, {});
+          return ok(
+            wrapUntrusted({
+              transferId: transfer.id,
+              url: transfer.url,
+              expiresAt: transfer.expiresAt,
+              emailed: 'nobody',
+              imports: (draft.imports ?? []).map((i) => ({ fileId: i.fileId, name: i.name, size: i.size, from: i.source })),
+              status: 'Yungle is fetching the files now; the link shows them as they arrive.',
+            }),
+          );
+        } catch (err) {
+          return fail(errorText(err));
+        }
+      },
+    );
+
+    server.registerTool(
+      'get_import_status',
+      {
+        title: 'Import progress',
+        description:
+          'Answers: have the files Yungle is fetching from URLs arrived yet? For each file id, returns ' +
+          'importing (with bytes received so far), ready, or failed with the reason.',
+        inputSchema: { fileIds: z.array(z.string()).min(1).max(20) },
+        annotations: { title: 'Import progress', readOnlyHint: true },
+      },
+      async ({ fileIds }) => {
+        try {
+          return ok(wrapUntrusted({ imports: await Promise.all(fileIds.map((id) => client.getImport(id))) }));
+        } catch (err) {
+          return fail(errorText(err));
+        }
       },
     );
   }
@@ -289,12 +536,14 @@ export function createServer(
       {
         title: 'Share files from this computer as a link',
         description: [
-          'Upload files from this machine as a Yungle transfer and return its link, resumably and',
-          'of any size the plan allows. Nobody is emailed. Refuses hidden files and folders',
-          '(dotfiles such as .env or .ssh), which almost never belong in a share link.',
+          'Upload files or folders from this machine as a Yungle transfer and return its link —',
+          'resumably, of any size the plan allows, keeping folder structure. Nobody is emailed.',
+          'Refuses hidden files and folders (dotfiles such as .env or .ssh), which almost never belong',
+          'in a share link; inside a shared folder they are skipped, and links are not followed.',
+          'Reports progress while it uploads.',
         ].join('\n'),
         inputSchema: {
-          paths: z.array(z.string().min(1)).min(1).max(100).describe('Absolute paths to files.'),
+          paths: z.array(z.string().min(1)).min(1).max(100).describe('Absolute paths to files or folders.'),
           title: z.string().optional(),
           expiresInDays: z.number().int().positive().optional(),
         },
@@ -308,11 +557,17 @@ export function createServer(
         const paths = await Promise.all(asked.map((p) => realpath(p)));
         const hidden = paths.filter(isHidden);
         if (hidden.length) return fail(`Refused: ${hidden.join(', ')} is hidden (reached through a link). Share it from the dashboard if you really mean to.`);
-        const stats = await Promise.all(paths.map((p) => stat(p)));
-        if (stats.some((s) => !s.isFile())) return fail('Every path must be a file (not a folder).');
+        let local;
+        try {
+          local = await expandPaths(paths);
+        } catch (err) {
+          return fail(errorText(err));
+        }
+        if (local.length === 0) return fail('Those paths contain no files (hidden files are skipped).');
+        const total = local.reduce((n, f) => n + f.size, 0);
         const agreed = await confirm(
           server,
-          `Share ${paths.length === 1 ? paths[0] : `${paths.length} files`} as a Yungle link? Anyone with the link can download ${paths.length === 1 ? 'it' : 'them'} until it expires.`,
+          `Share ${local.length === 1 ? local[0]!.path : `${local.length} files (${formatBytes(total)})`} as a Yungle link? Anyone with the link can download ${local.length === 1 ? 'it' : 'them'} until it expires.`,
           extra,
         );
         // Unlike before the 2026-09 review, "cannot ask" is a no here too: a
@@ -322,18 +577,35 @@ export function createServer(
             shared: false,
             reason:
               agreed === 'unsupported'
-                ? 'This assistant cannot ask the user to confirm, so no local file is shared from here. Use create_share_link for content you have, or ask the user to run `yungle send`.'
+                ? 'This assistant cannot ask the user to confirm, so no local file is shared from here. Content you already have can be shared as a link directly, or the user can run `yungle send`.'
                 : 'The user declined.',
           });
         }
         const draft = await client.createTransfer({
-          files: paths.map((p, i) => ({ name: basename(p), size: stats[i]!.size })),
+          files: local.map((f) => ({ name: basename(f.path), size: f.size, ...(f.dir ? { path: f.dir } : {}) })),
           title,
           expiresInDays,
         });
-        for (const [i, target] of draft.files.entries()) await uploadPath(draft.tusEndpoint, target, paths[i]!, stats[i]!.size);
+        // MCP progress notifications, when the client asked for them — at most
+        // one a second, so a 100 GB upload does not flood the transport.
+        const progressToken = extra?._meta?.progressToken;
+        let done = 0;
+        let lastSent = 0;
+        const report = (sent: number) => {
+          if (progressToken === undefined || Date.now() - lastSent < 1000) return;
+          lastSent = Date.now();
+          void extra.sendNotification({ method: 'notifications/progress', params: { progressToken, progress: done + sent, total } });
+        };
+        try {
+          for (const [i, target] of draft.files.entries()) {
+            await uploadPath(client, draft.tusEndpoint, target, local[i]!.path, report);
+            done += local[i]!.size;
+          }
+        } catch (err) {
+          return fail(`The upload stopped: ${errorText(err)}. Nothing was shared.`);
+        }
         const { transfer } = await client.finalizeTransfer(draft.transfer.id, {});
-        return ok({ transferId: transfer.id, url: transfer.url, expiresAt: transfer.expiresAt, emailed: 'nobody' });
+        return ok({ transferId: transfer.id, url: transfer.url, expiresAt: transfer.expiresAt, files: local.length, emailed: 'nobody' });
       },
     );
   }
@@ -472,6 +744,31 @@ export function keylessClient(): YungleClient {
   return new Proxy({} as YungleClient, {
     get: () => () => Promise.reject(new Error(message)),
   });
+}
+
+/** One command-line argument, safe in a POSIX shell. */
+export function shellQuote(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** The `--target` blob `yungle put` reads (apps/cli/src/target.ts): base64url JSON. */
+export function packTarget(t: { e: string; i: string; t: string; n: string; s: number }): string {
+  return Buffer.from(JSON.stringify(t), 'utf8').toString('base64url');
+}
+
+function errorText(err: unknown): string {
+  if (err instanceof YungleApiError) return `${err.message}${err.code ? ` (${err.code})` : ''}`;
+  return err instanceof Error ? err.message : String(err);
+}
+
+function formatBytes(n: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
 }
 
 /** Successful tool result. */
