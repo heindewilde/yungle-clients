@@ -13,7 +13,7 @@ Private, sustainable file transfer: a WeTransfer alternative with a CLI, an MCP 
 [![CI](https://github.com/heindewilde/yungle-clients/actions/workflows/ci.yml/badge.svg)](https://github.com/heindewilde/yungle-clients/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-34a868)](LICENSE)
 
-[Website](https://yungle.co?ref=github) · [Docs](https://yungle.co/developers?ref=github) · [API reference](https://yungle.co/developers/reference?ref=github) · [CLI](apps/cli) · [MCP](packages/mcp-server) · [TypeScript](packages/api-client) · [Python](python)
+[Website](https://yungle.co?ref=github) · [Docs](https://docs.yungle.co?ref=github) · [API reference](https://docs.yungle.co/api-reference?ref=github) · [CLI](apps/cli) · [MCP](packages/mcp-server) · [TypeScript](packages/api-client) · [Python](python)
 
 <br>
 
@@ -42,9 +42,9 @@ sign-in code can't be used to mail strangers.
 | **[TypeScript SDK](packages/api-client)** | `npm i yungle-client` | The whole API, typed and dependency-free, with resumable uploads from any `Blob`. Node, Bun, Deno, edge runtimes |
 | **[Python SDK](python)** | `pip install yungle` | The API from Python, with a one-call `send()` that handles the upload |
 | **[GitHub Action](https://github.com/heindewilde/yungle-send-action)** | `uses: heindewilde/yungle-send-action@v1` | Send build artefacts to a client from CI and get the link back as an output |
-| **[Examples](examples)** | | GitHub Actions, nightly reports, and more at [yungle.co/developers/recipes](https://yungle.co/developers/recipes?ref=github) |
+| **[Examples](examples)** | | GitHub Actions, nightly reports, and more at [docs.yungle.co/guides/send-from-ci](https://docs.yungle.co/guides/send-from-ci?ref=github) |
 
-All of it talks to the same public [REST API](https://yungle.co/developers/reference?ref=github)
+All of it talks to the same public [REST API](https://docs.yungle.co/api-reference?ref=github)
 ([OpenAPI 3.1](https://yungle.co/api/v1/openapi.json)), which CI checks these clients against
 on every change.
 
@@ -72,7 +72,7 @@ yungle webhooks listen --forward-to http://localhost:8080/hooks     # test webho
   and a typo gets a *did you mean*.
 - **Tab completion** for zsh, bash and fish: `yungle completion zsh`.
 
-Full reference: [apps/cli](apps/cli) · [yungle.co/developers/cli](https://yungle.co/developers/cli?ref=github)
+Full reference: [apps/cli](apps/cli) · [docs.yungle.co/cli](https://docs.yungle.co/cli?ref=github)
 
 ## Connect your AI assistant
 
@@ -143,7 +143,7 @@ then €0.02/GB from prepaid credit. [Pricing](https://yungle.co/pricing?ref=git
 
 **Not reachable from here:** your vault and end-to-end encrypted transfers. Their keys are
 derived in your browser and never sent to Yungle, so no API can read them. See
-[what the API can't do](https://yungle.co/developers/unsupported?ref=github).
+[what the API can't do](https://docs.yungle.co/unsupported?ref=github).
 
 ## Contributing
 

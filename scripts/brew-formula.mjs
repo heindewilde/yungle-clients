@@ -13,7 +13,7 @@ const sha256 = createHash('sha256').update(tgz).digest('hex');
 
 process.stdout.write(`class Yungle < Formula
   desc "Send and sync files with Yungle, private EU-hosted file transfer"
-  homepage "https://yungle.co/developers/cli"
+  homepage "https://docs.yungle.co/cli"
   url "${meta.dist.tarball}"
   sha256 "${sha256}"
   license "MIT"

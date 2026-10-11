@@ -148,6 +148,38 @@ test('a POST carries one Idempotency-Key, reused on its retry, so a 5xx is retri
   assert.equal(keys[1], keys[0], 'the retry reused it');
 });
 
+test('a dropped connection is retried for a safe method, with the same Idempotency-Key', async () => {
+  const keys: (string | null)[] = [];
+  let n = 0;
+  const fn = (async (_url: string, init: RequestInit) => {
+    keys.push(new Headers(init.headers).get('idempotency-key'));
+    if (n++ === 0) throw new TypeError('fetch failed');
+    return new Response(JSON.stringify({ contact: { id: 'c1' } }), { status: 201, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof globalThis.fetch;
+  const client = new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn });
+  await client.createContact({ email: 'a@example.com' });
+  assert.equal(keys.length, 2, 'retried after the throw');
+  assert.equal(keys[1], keys[0]);
+});
+
+test('a dropped connection is not retried past maxRetries, nor after an abort', async () => {
+  let calls = 0;
+  const drop = (async () => {
+    calls++;
+    throw new TypeError('fetch failed');
+  }) as unknown as typeof globalThis.fetch;
+  await assert.rejects(new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: drop, maxRetries: 0 }).me(), TypeError);
+  assert.equal(calls, 1);
+
+  calls = 0;
+  const abort = (async () => {
+    calls++;
+    throw new DOMException('aborted', 'AbortError');
+  }) as unknown as typeof globalThis.fetch;
+  await assert.rejects(new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: abort }).me());
+  assert.equal(calls, 1, 'an abort is the caller deciding, not a drop');
+});
+
 test('two separate POSTs get different keys', async () => {
   const { fn, calls } = sequence([{ status: 201, body: { contact: { id: 'c1' } } }]);
   const client = new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: fn });
@@ -210,7 +242,7 @@ test('verifyWebhook accepts a genuine signature and rejects tampering, the wrong
 });
 
 test('error.docs is carried through, and absent when an older server sends none', async () => {
-  const docs = 'https://yungle.co/developers/errors#quota_exceeded';
+  const docs = 'https://docs.yungle.co/errors#quota_exceeded';
   const withDocs = stubFetch({ status: 413, body: { error: { code: 'quota_exceeded', message: 'Full.', docs } } });
   const err = (await new YungleClient({ apiKey: 'k', baseUrl: 'http://x/v1', fetch: withDocs.fn, maxRetries: 0 })
     .me()

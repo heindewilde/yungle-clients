@@ -70,7 +70,7 @@ Global flags
   --yes                   never ask; for scripts
   --url <base>            use another Yungle (development)
 
-Run a command with --help for examples. Docs: https://yungle.co/developers/cli`;
+Run a command with --help for examples. Docs: https://docs.yungle.co/cli`;
 
 /** Every top-level command, for "did you mean" and shell completion. */
 export const COMMANDS = [

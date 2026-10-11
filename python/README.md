@@ -1,6 +1,6 @@
 # yungle
 
-Python client for [Yungle](https://yungle.co/developers?ref=pypi): private, EU-hosted file
+Python client for [Yungle](https://docs.yungle.co?ref=pypi): private, EU-hosted file
 transfer, a WeTransfer alternative with an API. Send files of any size as an expiring link, build collections for clients, keep
 contacts in sync.
 
@@ -23,7 +23,7 @@ collections on a paid one. The first 10 GB of API uploads each month are free.
 
 - **Every endpoint** is a method: `list_transfers`, `transfer_downloads`,
   `create_collection`, `add_collection_files`, `create_contact`, … Responses are the API's
-  JSON as dicts. Reference: <https://yungle.co/developers/reference>
+  JSON as dicts. Reference: <https://docs.yungle.co/api-reference>
 - **Pages** are followed for you by `all_transfers()` and `all_collection_files(id)`.
 - **Retries are safe.** Throttles and server errors are retried with backoff, and every
   POST carries an `Idempotency-Key`, so a retried create never makes a second copy.

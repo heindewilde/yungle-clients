@@ -7,7 +7,7 @@
     "source": "github"
   },
   "version": "0.3.1",
-  "websiteUrl": "https://yungle.co/developers",
+  "websiteUrl": "https://docs.yungle.co",
   "packages": [
     {
       "registryType": "npm",
