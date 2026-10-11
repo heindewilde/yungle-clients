@@ -1,5 +1,14 @@
 # yungle-mcp
 
+## 0.3.2
+
+### Patch Changes
+
+- [#15](https://github.com/heindewilde/yungle-clients/pull/15) [`3390cb6`](https://github.com/heindewilde/yungle-clients/commit/3390cb6fd283a223fa6e34e79e828e9892fc498d) Thanks [@heindewilde](https://github.com/heindewilde)! - Docs links point to docs.yungle.co.
+
+- Updated dependencies [[`3390cb6`](https://github.com/heindewilde/yungle-clients/commit/3390cb6fd283a223fa6e34e79e828e9892fc498d)]:
+  - yungle-client@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
