@@ -1,5 +1,11 @@
 # yungle-mcp
 
+## 0.3.1
+
+### Patch Changes
+
+- [#13](https://github.com/heindewilde/yungle-clients/pull/13) [`61c9f2e`](https://github.com/heindewilde/yungle-clients/commit/61c9f2eece94385799627bde5439f865d6ea55d4) Thanks [@heindewilde](https://github.com/heindewilde)! - `create_transfer` is listed only for a credential with `transfers:write`. A read-only key used to get it too, and the API refuses to create a transfer without that scope, so the tool could only fail.
+
 ## 0.3.0
 
 ### Minor Changes
