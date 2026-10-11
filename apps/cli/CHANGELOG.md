@@ -1,5 +1,11 @@
 # yungle-cli
 
+## 0.3.1
+
+### Patch Changes
+
+- [#15](https://github.com/heindewilde/yungle-clients/pull/15) [`3390cb6`](https://github.com/heindewilde/yungle-clients/commit/3390cb6fd283a223fa6e34e79e828e9892fc498d) Thanks [@heindewilde](https://github.com/heindewilde)! - Uploads send one part per request instead of the whole file in one, so a large file on a slow connection is no longer cut off by the server's 30-minute request limit. Help and docs links point to docs.yungle.co.
+
 ## 0.3.0
 
 ### Minor Changes

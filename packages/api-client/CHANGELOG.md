@@ -1,5 +1,11 @@
 # yungle-client
 
+## 0.3.2
+
+### Patch Changes
+
+- [#15](https://github.com/heindewilde/yungle-clients/pull/15) [`3390cb6`](https://github.com/heindewilde/yungle-clients/commit/3390cb6fd283a223fa6e34e79e828e9892fc498d) Thanks [@heindewilde](https://github.com/heindewilde)! - A dropped connection is now retried for GET, DELETE and POST (with the same `Idempotency-Key`), as the README always said; before, the network error was thrown straight away. A caller's own abort is never retried. Docs links point to docs.yungle.co.
+
 ## 0.3.1
 
 ### Patch Changes
