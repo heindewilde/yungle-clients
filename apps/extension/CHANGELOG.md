@@ -1,5 +1,11 @@
 # yungle-extension
 
+## 0.1.4
+
+### Patch Changes
+
+- [#10](https://github.com/heindewilde/yungle-clients/pull/10) [`71e3682`](https://github.com/heindewilde/yungle-clients/commit/71e368201694873992eba379dd106f5506f61aa9) Thanks [@heindewilde](https://github.com/heindewilde)! - Plain (non-encrypted) uploads now send one server part per request instead of the whole file in one, so a large file on a slow connection is no longer cut off by the server's 30-minute limit on a single request.
+
 ## 0.1.2
 
 ### Patch Changes
