@@ -1,13 +1,23 @@
 name: release-extension
 # The browser extension ships to the Chrome Web Store and Firefox Add-ons, not
 # npm. A tag `extension-v<version>` (matching apps/extension/package.json)
-# builds the store packages and attaches them to a GitHub release; uploading
-# them to the two stores is done by hand from that release.
+# builds the store packages and attaches them to a GitHub release, then
+# uploads the Chrome package to the Chrome Web Store and submits it for review.
+# Firefox is still uploaded by hand from the release (AMO wants the source zip).
+#
+# Chrome Web Store auth is keyless: GitHub's OIDC token is exchanged, through
+# workload identity federation in the `yungle-ci` Google Cloud project, for an
+# access token of the service account linked to the publisher in the CWS
+# Developer Dashboard (Account → Service accounts). The provider only accepts
+# this repository on `extension-v*` tags. Nothing secret lives in GitHub; the
+# four ids are repository variables, and with CWS_ITEM_ID unset the upload is
+# skipped.
 on:
   push:
     tags: ['extension-v*']
 permissions:
   contents: write
+  id-token: write
 jobs:
   package:
     runs-on: ubuntu-latest
@@ -34,3 +44,40 @@ jobs:
       - name: Release
         env: { GH_TOKEN: '${{ github.token }}' }
         run: gh release create "$GITHUB_REF_NAME" apps/extension/.output/*.zip --title "Browser extension ${GITHUB_REF_NAME#extension-v}" --notes "Store packages for Chrome (and Edge/Brave) and Firefox, plus the source zip for AMO review."
+      - name: Chrome Web Store login
+        id: gcp
+        if: vars.CWS_ITEM_ID != ''
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+      # CWS API v2. The version in the manifest must be higher than the live
+      # one or the upload is refused; DEFAULT_PUBLISH goes live once approved.
+      - name: Chrome Web Store upload and submit for review
+        if: vars.CWS_ITEM_ID != ''
+        env:
+          TOKEN: ${{ steps.gcp.outputs.access_token }}
+          ITEM: publishers/${{ vars.CWS_PUBLISHER_ID }}/items/${{ vars.CWS_ITEM_ID }}
+        run: |
+          set -euo pipefail
+          api=https://chromewebstore.googleapis.com
+          auth=(-H "Authorization: Bearer $TOKEN")
+          zip=$(ls apps/extension/.output/*-chrome.zip)
+          res=$(curl -sS --fail-with-body "${auth[@]}" -H 'Content-Type: application/zip' \
+            --data-binary "@$zip" "$api/upload/v2/$ITEM:upload")
+          echo "upload: $res"
+          state=$(jq -r .uploadState <<<"$res")
+          for _ in $(seq 30); do
+            case "$state" in
+              *IN_PROGRESS) sleep 10
+                state=$(curl -sS --fail-with-body "${auth[@]}" "$api/v2/$ITEM:fetchStatus" | jq -r .lastAsyncUploadState) ;;
+              *) break ;;
+            esac
+          done
+          [ "$state" = SUCCEEDED ] || { echo "upload ended as $state"; exit 1; }
+          curl -sS --fail-with-body "${auth[@]}" -H 'Content-Type: application/json' \
+            -d '{"publishType":"DEFAULT_PUBLISH"}' "$api/v2/$ITEM:publish"
+          echo
+          curl -sS --fail-with-body "${auth[@]}" "$api/v2/$ITEM:fetchStatus"
