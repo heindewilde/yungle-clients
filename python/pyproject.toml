@@ -22,8 +22,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://yungle.co/developers?ref=pypi"
-Documentation = "https://yungle.co/developers/reference?ref=pypi"
+Homepage = "https://docs.yungle.co?ref=pypi"
+Documentation = "https://docs.yungle.co/api-reference?ref=pypi"
 Source = "https://github.com/heindewilde/yungle-clients"
 Issues = "https://github.com/heindewilde/yungle-clients/issues"
 

@@ -55,7 +55,7 @@
     "type": "git",
     "url": "git+https://github.com/heindewilde/yungle-clients.git"
   },
-  "homepage": "https://yungle.co/developers/cli?ref=npm",
+  "homepage": "https://docs.yungle.co/cli?ref=npm",
   "bugs": {
     "url": "https://github.com/heindewilde/yungle-clients/issues"
   },

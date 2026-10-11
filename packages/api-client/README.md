@@ -85,12 +85,12 @@ refused. No public URL? Create the endpoint with `url: null` and poll `listWebho
 
 Your vault and end-to-end encrypted transfers, because their keys are derived in
 the client and never sent to Yungle. See
-<https://yungle.co/developers/unsupported>.
+<https://docs.yungle.co/unsupported>.
 
 ## Related
 
 - [`yungle-cli`](https://www.npmjs.com/package/yungle-cli) — resumable uploads from your terminal
 - [`yungle-mcp`](https://www.npmjs.com/package/yungle-mcp) — connect Claude or Cursor to Yungle
-- [API reference](https://yungle.co/developers/reference?ref=npm) · [OpenAPI spec](https://yungle.co/api/v1/openapi.json)
+- [API reference](https://docs.yungle.co/api-reference?ref=npm) · [OpenAPI spec](https://yungle.co/api/v1/openapi.json)
 
 MIT

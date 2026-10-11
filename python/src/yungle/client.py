@@ -11,10 +11,10 @@ import httpx
 
 from .errors import YungleError, parse_retry_after
 from .download import download_links
+from ._version import VERSION
 from .upload import upload_file
 
 DEFAULT_BASE = "https://yungle.co/api/v1"
-_VERSION = "0.2.0"
 
 
 def _enc(value: str) -> str:
@@ -53,7 +53,7 @@ class Yungle:
         self._headers = {
             "Authorization": f"Bearer {key}",
             "Accept": "application/json",
-            "User-Agent": f"yungle-python/{_VERSION}",
+            "User-Agent": f"yungle-python/{VERSION}",
         }
 
     @property

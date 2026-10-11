@@ -576,17 +576,30 @@ export class YungleClient {
     let attempt = 0;
 
     for (;;) {
-      const res = await this.doFetch(`${this.baseUrl}${path}`, {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          Accept: 'application/json',
-          'User-Agent': this.userAgent,
-          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
-          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
+      let res: Response;
+      try {
+        res = await this.doFetch(`${this.baseUrl}${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            Accept: 'application/json',
+            'User-Agent': this.userAgent,
+            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+            ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+      } catch (err) {
+        // The connection dropped (or never opened): fetch throws rather than
+        // answering. Retried like a 5xx when the method is safe — this was
+        // documented for a long time while the throw escaped the loop. A
+        // caller's own abort is not a dropped connection and is never retried.
+        const aborted = err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
+        if (aborted || !safe || attempt >= this.maxRetries) throw err;
+        await sleep(backoffMs(attempt, null));
+        attempt++;
+        continue;
+      }
 
       if (res.ok) return (await res.json()) as T;
 
@@ -595,7 +608,7 @@ export class YungleClient {
       const mayRetry = error.status === 429 || (safe && error.retryable);
       if (!mayRetry || attempt >= this.maxRetries) throw error;
 
-      await sleep(backoffMs(attempt, error));
+      await sleep(backoffMs(attempt, error.retryAfterSeconds));
       attempt++;
     }
   }
@@ -646,8 +659,7 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
  * exponentially with a little jitter — several clients throttled at the same
  * moment must not all come back at the same moment.
  */
-function backoffMs(attempt: number, error: YungleApiError): number {
-  const stated = error.retryAfterSeconds;
+function backoffMs(attempt: number, stated: number | null): number {
   if (stated !== null) return stated * 1000;
   return Math.min(2 ** attempt * 500, 8000) + Math.floor(Math.random() * 250);
 }

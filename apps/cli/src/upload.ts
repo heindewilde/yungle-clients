@@ -1,4 +1,4 @@
-import { createTokenKeeper, type RenewOutcome, type UploadTarget } from 'yungle-client';
+import { chunkSize, createTokenKeeper, type RenewOutcome, type UploadTarget } from 'yungle-client';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { clearUploadUrls, readUploadUrls, saveUploadUrl } from './config';
@@ -112,6 +112,14 @@ async function uploadOne(
        */
       ...(uploadUrl ? { uploadUrl } : {}),
       uploadSize: size,
+      /**
+       * One server part per PATCH, never the whole file. tus-js-client's
+       * default is a single PATCH for everything, and the proxy in front of
+       * the upload service cuts any request at 30 minutes — so a big file on a
+       * slow line failed at the same point on every retry. The same rule the
+       * website and the extension follow (`chunkSize` from yungle-client).
+       */
+      chunkSize: chunkSize(size),
       /**
        * The token authorizes EVERY method, not just the creation POST — the
        * server verifies HEAD, PATCH and DELETE too. Metadata below only reaches

@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4 # yungle-cli needs Node 22 or later
+        with: { node-version: 22 }
       - run: make dist
       - run: npx -y yungle-cli send dist/ --title "${{ github.ref_name }}" --to client@example.com --json
         env:

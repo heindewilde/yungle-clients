@@ -144,6 +144,6 @@ Desktop, Claude Code, Cursor and Windsurf, whichever you have. Restart the clien
 
 Your vault and end-to-end encrypted transfers are not reachable: their keys are derived in the
 browser and never sent to Yungle. `yungle get` on an end-to-end encrypted link says so and
-points you to the browser. See <https://yungle.co/developers/unsupported>.
+points you to the browser. See <https://docs.yungle.co/unsupported>.
 
-Docs: <https://yungle.co/developers/cli?ref=npm> · Source: <https://github.com/heindewilde/yungle-clients> · MIT
+Docs: <https://docs.yungle.co/cli?ref=npm> · Source: <https://github.com/heindewilde/yungle-clients> · MIT

@@ -152,7 +152,7 @@ def test_create_pull_webhook_sends_null_url():
 
 
 def test_error_carries_docs_link():
-    docs = "https://yungle.co/developers/errors#quota_exceeded"
+    docs = "https://docs.yungle.co/errors#quota_exceeded"
 
     def handler(req):
         return httpx.Response(413, json={"error": {"code": "quota_exceeded", "message": "Full.", "docs": docs}})

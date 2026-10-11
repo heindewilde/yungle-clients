@@ -91,7 +91,7 @@ can put that in the message of a transfer they send you. So:
 ## Not reachable
 
 Your vault and end-to-end encrypted transfers: their keys are derived in the browser and never
-sent to Yungle. See <https://yungle.co/developers/unsupported>.
+sent to Yungle. See <https://docs.yungle.co/unsupported>.
 
-Docs: <https://yungle.co/developers/mcp?ref=npm> · Source:
+Docs: <https://docs.yungle.co/mcp-server?ref=npm> · Source:
 <https://github.com/heindewilde/yungle-clients> · MIT
