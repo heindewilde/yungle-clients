@@ -9,9 +9,11 @@ import { ORIGIN } from './config';
  *
  * - The signed upload token authorizes EVERY tus request (HEAD, PATCH), not
  *   just creation, so it rides in a header as well as the metadata.
- * - Encrypted uploads MUST use `serverChunkSize`: the server answers a partial
- *   PATCH with its last committed part boundary, so any other chunk size makes
- *   the offset stop advancing and the client re-send forever.
+ * - Every upload sends one server part per PATCH (`serverChunkSize`). The
+ *   server answers a partial PATCH with its last committed part boundary, so
+ *   any other chunk size makes the offset stop advancing and the client
+ *   re-send forever; and a whole-file PATCH is cut by the proxy's 30-minute
+ *   limit on a request body.
  * - `Upload-Metadata` travels in the clear, so an encrypted upload's filename
  *   there is a placeholder.
  * - Upload tokens live two hours. A big file on a home connection outlasts
@@ -54,7 +56,11 @@ export function uploadFile(
       endpoint,
       ...(e2e && ciphertextSize !== null
         ? { fileReader: createE2eFileReader(e2e), chunkSize: serverChunkSize(ciphertextSize) }
-        : {}),
+        : // One part per PATCH for a plain upload too. At tus's default of
+          // Infinity the whole file is ONE request, and the server's proxy
+          // ends any request body after 30 minutes, so a big file on a slow
+          // line never finished (the website hit this on 2026-10-11).
+          { chunkSize: serverChunkSize(file.size) }),
       // ~54 seconds of retrying: long enough to ride out a deploy, which is the
       // disconnect that actually happens.
       retryDelays: [0, 1000, 3000, 5000, 10000, 15000, 20000],
