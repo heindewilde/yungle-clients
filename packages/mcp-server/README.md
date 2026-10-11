@@ -61,7 +61,7 @@ Or by hand:
 | `get_account`, `list_transfers`, `get_transfer`, `get_transfer_downloads`, `list_collections`, `get_collection`, `list_collection_files`, `list_folders`, `list_guests`, `list_contacts`, `list_upload_requests`, `get_upload_request` | read | Answer questions about your transfers, collections, contacts and upload requests |
 | `get_download_links` | read | Signed, resumable download URLs for a link someone shared (`/t/…`, `/c/…`) or your own transfer or collection |
 | `get_import_status` | write | How far the files Yungle is fetching from URLs have got |
-| `create_transfer` | read | Prepare a draft and get one keyless `npx yungle-cli put …` command per file, for an assistant with a shell |
+| `create_transfer` | write | Prepare a draft and get one keyless `npx yungle-cli put …` command per file, for an assistant with a shell |
 | `finalize_transfer` | write | Make a prepared draft a link. Emails nobody |
 | `share_from_urls` | write | Share files that are already online (a presigned S3 link, a CDN URL) — Yungle fetches them, so any size works, hosted too. Emails nobody |
 | `create_share_link` | write | Turn content the assistant has (up to 25 MB) into a link. Emails nobody |

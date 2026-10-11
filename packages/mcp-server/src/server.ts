@@ -18,8 +18,8 @@ import { saveLinks } from './download';
  * Yungle's side at all, and answering them by pointing the customer's own AI at
  * their own data avoids the entire sub-processor question.
  *
- * There is exactly one write, and it deliberately does not send anything by
- * default — see `create_transfer`.
+ * The writes exist only for a credential that may write, and none of them
+ * sends anything by default — see `create_transfer` and `send_transfer`.
  */
 
 // Replaced with the package version by the build; `dev` under tsx and in tests.
@@ -338,63 +338,67 @@ export function createServer(
 
   // ── Writing ───────────────────────────────────────────────────────────────
 
-  server.registerTool(
-    'create_transfer',
-    {
-      title: 'Prepare a transfer',
-      description: [
-        'Prepare a draft transfer for files that live on a machine with a shell, and return one',
-        'upload command per file. Each command (`npx -y yungle-cli put …`) needs no Yungle key: it',
-        'carries a token that can write only that file, for two hours, and it resumes if interrupted.',
-        'Nothing is shared and nobody is emailed until the transfer is finalized.',
-      ].join('\n'),
-      inputSchema: {
-        files: z
-          .array(
-            z.object({
-              name: z.string(),
-              size: z.number().int().nonnegative().describe('Exact byte size.'),
-              path: z.string().optional().describe('Folder within the upload.'),
-              localPath: z.string().optional().describe('Where the file is on the machine that will run the command.'),
-            }),
-          )
-          .min(1)
-          .max(500),
-        title: z.string().optional().describe('Label for the dashboard; never shown to recipients.'),
-        expiresInDays: z.number().int().positive().optional(),
+  // Only with transfers:write. A read-only key used to get this tool too, and
+  // `POST /transfers` refuses it, so it was a tool that could only fail.
+  if (opts.canWrite) {
+    server.registerTool(
+      'create_transfer',
+      {
+        title: 'Prepare a transfer',
+        description: [
+          'Prepare a draft transfer for files that live on a machine with a shell, and return one',
+          'upload command per file. Each command (`npx -y yungle-cli put …`) needs no Yungle key: it',
+          'carries a token that can write only that file, for two hours, and it resumes if interrupted.',
+          'Nothing is shared and nobody is emailed until the transfer is finalized.',
+        ].join('\n'),
+        inputSchema: {
+          files: z
+            .array(
+              z.object({
+                name: z.string(),
+                size: z.number().int().nonnegative().describe('Exact byte size.'),
+                path: z.string().optional().describe('Folder within the upload.'),
+                localPath: z.string().optional().describe('Where the file is on the machine that will run the command.'),
+              }),
+            )
+            .min(1)
+            .max(500),
+          title: z.string().optional().describe('Label for the dashboard; never shown to recipients.'),
+          expiresInDays: z.number().int().positive().optional(),
+        },
+        annotations: { title: 'Prepare a transfer', readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       },
-      annotations: { title: 'Prepare a transfer', readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-    },
-    async ({ files, title, expiresInDays }) => {
-      try {
-        const created = await client.createTransfer({
-          files: files.map(({ localPath: _local, ...f }) => f),
-          title,
-          expiresInDays,
-        });
-        return ok({
-          transferId: created.transfer.id,
-          // Said in the payload, not only the description: the payload is what a
-          // model summarises back to the user.
-          status: 'draft — nothing uploaded yet, nobody emailed',
-          uploadCommands: created.files.map((t, i) => ({
-            name: t.name,
-            command: `npx -y yungle-cli@latest put ${shellQuote(files[i]!.localPath ?? `./${t.name}`)} --target ${packTarget({
-              e: created.tusEndpoint,
-              i: t.id,
-              t: t.uploadToken,
-              n: t.name,
-              s: t.size,
-            })}`,
-          })),
-          next: 'Run each command where the file is. When they have finished, finalize the transfer to get its link — or upload in the Yungle dashboard instead.',
-          expiresAt: created.transfer.expiresAt,
-        });
-      } catch (err) {
-        return fail(errorText(err));
-      }
-    },
-  );
+      async ({ files, title, expiresInDays }) => {
+        try {
+          const created = await client.createTransfer({
+            files: files.map(({ localPath: _local, ...f }) => f),
+            title,
+            expiresInDays,
+          });
+          return ok({
+            transferId: created.transfer.id,
+            // Said in the payload, not only the description: the payload is what a
+            // model summarises back to the user.
+            status: 'draft — nothing uploaded yet, nobody emailed',
+            uploadCommands: created.files.map((t, i) => ({
+              name: t.name,
+              command: `npx -y yungle-cli@latest put ${shellQuote(files[i]!.localPath ?? `./${t.name}`)} --target ${packTarget({
+                e: created.tusEndpoint,
+                i: t.id,
+                t: t.uploadToken,
+                n: t.name,
+                s: t.size,
+              })}`,
+            })),
+            next: 'Run each command where the file is. When they have finished, finalize the transfer to get its link — or upload in the Yungle dashboard instead.',
+            expiresAt: created.transfer.expiresAt,
+          });
+        } catch (err) {
+          return fail(errorText(err));
+        }
+      },
+    );
+  }
 
   if (opts.canWrite) {
     server.registerTool(

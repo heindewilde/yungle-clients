@@ -92,11 +92,16 @@ test('no tool can ever delete, revoke, remove or invite, whatever the credential
   }
 });
 
-test('a read-only credential gets read tools and a draft, nothing that shares or sends', async () => {
+test('a read-only credential gets read tools only: no draft, nothing that shares or sends', async () => {
+  // create_transfer used to be listed here too, and the API refuses it without
+  // transfers:write, so it was a tool that could only fail.
   const client = await connect();
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name), ['create_transfer']);
+  assert.deepEqual(tools.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name), []);
   await client.close();
+  const write = await connect({ canWrite: true, canEmail: false, local: false });
+  assert.ok((await write.listTools()).tools.some((t) => t.name === 'create_transfer'));
+  await write.close();
 });
 
 test('sending exists only with email permission; sharing only with write', async () => {
@@ -181,7 +186,7 @@ test('create_transfer says, in the payload, that nothing was sent', async () => 
   // In the payload rather than only the description, because the payload is
   // what a model summarises back to the user. "I've sent that for you" would be
   // a lie the tool made easy to tell.
-  const client = await connect();
+  const client = await connect({ canWrite: true, canEmail: false, local: false });
   const result = await client.callTool({
     name: 'create_transfer',
     arguments: { files: [{ name: 'a.pdf', size: 10 }] },
