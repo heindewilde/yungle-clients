@@ -701,8 +701,12 @@ export async function startStdioServer(): Promise<void> {
     // Start anyway, with the read tools and nothing else, so a directory or an
     // inspector can list what this server offers. Every call says what is
     // missing; nothing can be read, shared or sent without a key.
+    // The hosted server first: one URL, sign-in in the browser, no key and no
+    // install — what most people who land here actually want (YUN-67).
     process.stderr.write(
-      'YUNGLE_API_KEY is not set: listing tools only. Create a key at https://yungle.co/dashboard/settings/api\n',
+      'YUNGLE_API_KEY is not set: listing tools only.\n' +
+        'Easiest: add the hosted server https://yungle.co/mcp to your MCP client and sign in, no key needed.\n' +
+        'Or create a key at https://yungle.co/dashboard/settings/api\n',
     );
     const server = createServer(keylessClient(), { canWrite: false, canEmail: false, local: true });
     await server.connect(new StdioServerTransport());
