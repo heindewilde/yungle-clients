@@ -1,5 +1,11 @@
 # yungle-mcp
 
+## 0.3.3
+
+### Patch Changes
+
+- [#17](https://github.com/heindewilde/yungle-clients/pull/17) [`f173589`](https://github.com/heindewilde/yungle-clients/commit/f1735894d47df4934c1365b174149b469419c37e) Thanks [@heindewilde](https://github.com/heindewilde)! - Without a key, the startup message now points at the hosted server first (https://yungle.co/mcp, sign in in the browser, no key needed), then at creating a key.
+
 ## 0.3.2
 
 ### Patch Changes
